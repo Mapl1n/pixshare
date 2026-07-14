@@ -113,6 +113,18 @@ body {
 .file-card:hover .file-card-remove, .file-card:active .file-card-remove { opacity: 1; }
 @media (hover: none) { .file-card-remove { opacity: 1; } }
 
+/* QR display */
+.qr-container {
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: #fff; border-radius: var(--radius);
+  border: 2px solid var(--color-primary-light);
+  min-height: 200px;
+}
+.qr-container canvas { display: block; margin: 0 auto; }
+/* Fixed scan container */
+#scan-container { width: 100%; display: flex; justify-content: center; }
+#scan-container video { max-width: 100%; border-radius: var(--radius); }
+
 /* ----- Signal Panels ----- */
 .signal-panel { display: flex; flex-direction: column; gap: 10px; }
 .step-num {

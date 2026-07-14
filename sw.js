@@ -2,7 +2,7 @@
  * sw.js — Service Worker for PixShare PWA
  */
 'use strict';
-var CACHE = 'pixshare-v3';
+var CACHE = 'pixshare-v4';
 var SHELL = [
   './', './index.html', './css/style.css',
   './js/app.js', './js/utils.js', './js/file-handler.js',

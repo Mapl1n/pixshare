@@ -1,5 +1,5 @@
 /**
- * ui-controller.js — DOM rendering for PixShare (manual SDP version)
+ * ui-controller.js — DOM rendering for PixShare (QR edition)
  */
 PIX.UI = (function () {
   'use strict';
@@ -11,38 +11,45 @@ PIX.UI = (function () {
     els.fileGrid     = document.getElementById('file-grid');
     els.fileToolbar  = document.getElementById('file-toolbar');
     els.btnShare     = document.getElementById('btn-share');
-    els.btnAdd       = document.getElementById('btn-add');
-    els.btnClear     = document.getElementById('btn-clear');
 
-    // Sender signal panels
+    // Sender
     els.senderStep1  = document.getElementById('sender-step1');
+    els.qrContainer  = document.getElementById('qr-container');
     els.senderConnected = document.getElementById('sender-connected');
     els.transferProg = document.getElementById('transfer-progress');
     els.sendProgBar  = document.getElementById('send-progress-bar');
     els.sendProgText = document.getElementById('send-progress-text');
     els.sendFileName = document.getElementById('send-file-name');
 
-    // Receiver signal panels
-    els.recvArea     = document.getElementById('receiver-area');
+    // Receiver
     els.recvStep1    = document.getElementById('receiver-step1');
+    els.recvScanArea = document.getElementById('recv-scan-area');
     els.recvStep2    = document.getElementById('receiver-step2');
+    els.recvAnswerQR = document.getElementById('recv-answer-qr');
     els.recvReceiving = document.getElementById('receiver-receiving');
     els.recvComplete = document.getElementById('receiver-complete');
     els.recvError    = document.getElementById('receiver-error');
+    els.recvErrorMsg = document.getElementById('recv-error-msg');
     els.recvImgGrid  = document.getElementById('recv-image-grid');
     els.recvSummary  = document.getElementById('recv-summary');
     els.recvProgBar  = document.getElementById('recv-progress-bar');
     els.recvProgText = document.getElementById('recv-progress-text');
     els.recvFileName = document.getElementById('recv-file-name');
-    els.recvErrorMsg = document.getElementById('recv-error-msg');
-    els.btnRetry     = document.getElementById('btn-retry');
-    els.btnSaveAll   = document.getElementById('btn-save-all');
     els.iosHint      = document.getElementById('ios-hint');
 
-    // Header
+    // Header / toast
     els.connText = document.getElementById('conn-text');
     els.connStatus = document.getElementById('connection-status');
     els.toastContainer = document.getElementById('toast-container');
+
+    // Init scan area
+    _initScanArea();
+  }
+
+  function _initScanArea() {
+    document.getElementById('btn-start-scan').addEventListener('click', function () {
+      showScannerArea();
+    });
   }
 
   function resetAll() {
@@ -50,6 +57,7 @@ PIX.UI = (function () {
     els.senderConnected.classList.add('hidden');
     els.transferProg.classList.add('hidden');
     els.recvStep1.classList.remove('hidden');
+    els.recvScanArea.classList.add('hidden');
     els.recvStep2.classList.add('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvComplete.classList.add('hidden');
@@ -94,9 +102,9 @@ PIX.UI = (function () {
         var wrap = document.getElementById('thumb-' + idx);
         if (!wrap) return;
         try {
-          var url = URL.createObjectURL(file);
           var img = document.createElement('img');
-          img.className = 'file-card-thumb'; img.alt = file.name; img.src = url;
+          img.className = 'file-card-thumb'; img.alt = file.name;
+          img.src = URL.createObjectURL(file);
           wrap.innerHTML = ''; wrap.appendChild(img);
         } catch (e) {}
       })(j, files[j].file);
@@ -105,19 +113,30 @@ PIX.UI = (function () {
     els.fileGrid.querySelectorAll('.file-card-remove').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
-        var idx = parseInt(this.getAttribute('data-idx'), 10);
-        document.dispatchEvent(new CustomEvent('pix:remove-file', { detail: idx }));
+        document.dispatchEvent(new CustomEvent('pix:remove-file', { detail: parseInt(this.getAttribute('data-idx'), 10) }));
       });
     });
 
-    els.btnShare.innerHTML = '📤 生成连接码，发给好友（' + files.length + ' 张）';
+    els.btnShare.textContent = '📤 生成二维码（' + files.length + ' 张）';
   }
 
-  // ---- Sender Steps ----
+  // ---- Sender: Show QR Code ----
   function showSenderStep1() {
     els.senderStep1.classList.remove('hidden');
     els.senderConnected.classList.add('hidden');
     els.transferProg.classList.add('hidden');
+  }
+
+  function showOfferQR(sdp) {
+    els.qrContainer.innerHTML = '';
+    var ok = PIX.QR.generateQRCode(sdp, els.qrContainer);
+    if (!ok) {
+      // QR too big — show compressed SDP as fallback
+      els.qrContainer.innerHTML = '<p style="color:#92400e;text-align:center;padding:16px">QR 码生成失败，请用下方文本连接码</p>';
+      // Show text fallback
+      document.getElementById('sender-offer-text').value = sdp;
+      document.getElementById('sender-text-fallback').classList.remove('hidden');
+    }
   }
 
   function showOfferText(sdp) {
@@ -125,25 +144,55 @@ PIX.UI = (function () {
   }
 
   function showSenderConnected() {
-    els.senderStep1.style.opacity = '0.4';
+    els.senderStep1.style.opacity = '0.5';
     els.senderConnected.classList.remove('hidden');
     els.transferProg.classList.remove('hidden');
   }
 
-  // ---- Sender Progress ----
-  function showSendProgress() { els.transferProg.classList.remove('hidden'); }
-  function updateSendProgress(pct, fileName) {
-    els.sendProgBar.style.width = pct + '%';
-    els.sendProgText.textContent = pct + '%';
-    if (fileName) els.sendFileName.textContent = fileName;
+  // ---- Receiver: Scan ----
+  var _scanner = null;
+
+  function showScannerArea() {
+    els.recvStep1.classList.add('hidden');
+    els.recvScanArea.classList.remove('hidden');
+    els.qrContainer.innerHTML = '';
+
+    var container = document.getElementById('scan-container');
+    container.innerHTML = '<p style="text-align:center;padding:20px;color:#6b7280">正在启动摄像头...</p>';
+
+    _scanner = PIX.QR.startScanner(
+      function (result) {
+        // QR detected!
+        PIX.QR.stopScanner(_scanner);
+        els.recvScanArea.classList.add('hidden');
+        // Trigger PeerManager with the scanned SDP
+        document.getElementById('recv-offer-input').value = result;
+        PIX.PeerManager.receiverStart();
+      },
+      function (err) {
+        PIX.QR.stopScanner(_scanner);
+        els.recvScanArea.classList.add('hidden');
+        els.recvStep1.classList.remove('hidden');
+        toast(err, 'error');
+      }
+    );
+
+    container.innerHTML = '';
+    container.appendChild(_scanner.element);
   }
 
   // ---- Receiver Steps ----
   function showReceiverStep2() {
     els.recvStep1.classList.add('hidden');
+    els.recvScanArea.classList.add('hidden');
     els.recvStep2.classList.remove('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvComplete.classList.add('hidden');
+  }
+
+  function showAnswerQR(sdp) {
+    els.recvAnswerQR.innerHTML = '';
+    PIX.QR.generateQRCode(sdp, els.recvAnswerQR);
   }
 
   function showAnswerText(sdp) {
@@ -178,11 +227,9 @@ PIX.UI = (function () {
         + '<div class="card-label">' + name + '</div></div>';
     }
     els.recvImgGrid.innerHTML = html;
-
     els.recvImgGrid.querySelectorAll('.recv-image-card').forEach(function (card) {
       card.addEventListener('click', function () {
-        var idx = parseInt(this.getAttribute('data-idx'), 10);
-        showLightbox(images[idx]);
+        showLightbox(images[parseInt(this.getAttribute('data-idx'), 10)]);
       });
     });
     if (U.isIOS()) els.iosHint.classList.remove('hidden');
@@ -190,12 +237,22 @@ PIX.UI = (function () {
 
   function showReceiverError(msg) {
     els.recvStep1.classList.add('hidden');
+    els.recvScanArea.classList.add('hidden');
     els.recvStep2.classList.add('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvError.classList.remove('hidden');
     els.recvErrorMsg.textContent = msg;
   }
 
+  // ---- Sender Progress ----
+  function showSendProgress() { els.transferProg.classList.remove('hidden'); }
+  function updateSendProgress(pct, fileName) {
+    els.sendProgBar.style.width = pct + '%';
+    els.sendProgText.textContent = pct + '%';
+    if (fileName) els.sendFileName.textContent = fileName;
+  }
+
+  // ---- Lightbox ----
   function showLightbox(img) {
     var lb = document.createElement('div'); lb.className = 'lightbox';
     var el = document.createElement('img'); el.src = URL.createObjectURL(img.blob);
@@ -217,13 +274,13 @@ PIX.UI = (function () {
   function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
   return {
-    init: init, resetAll: resetAll,
-    setConnStatus: setConnStatus,
+    init: init, resetAll: resetAll, setConnStatus: setConnStatus,
     renderFileGrid: renderFileGrid,
-    showSenderStep1: showSenderStep1, showOfferText: showOfferText,
+    showSenderStep1: showSenderStep1, showOfferQR: showOfferQR, showOfferText: showOfferText,
     showSenderConnected: showSenderConnected,
     showSendProgress: showSendProgress, updateSendProgress: updateSendProgress,
-    showReceiverStep2: showReceiverStep2, showAnswerText: showAnswerText,
+    showScannerArea: showScannerArea,
+    showReceiverStep2: showReceiverStep2, showAnswerQR: showAnswerQR, showAnswerText: showAnswerText,
     showReceiverReceiving: showReceiverReceiving, updateRecvProgress: updateRecvProgress,
     showReceiverComplete: showReceiverComplete, showReceiverError: showReceiverError,
     showLightbox: showLightbox, toast: toast

@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PixShare">
-  <meta name="description" content="P2P 图片无损直传 — 纯 WebRTC 手动交换，零服务器，永远不断连">
+  <meta name="description" content="P2P 图片无损直传 — QR 码扫码连接，零复制粘贴">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
@@ -16,13 +16,12 @@
 </head>
 <body>
   <div id="app">
-    <!-- Header -->
     <header id="app-header">
       <div class="header-left">
         <div class="logo">📸</div>
         <div>
           <h1>PixShare</h1>
-          <p class="header-sub">P2P 无损传图 · 零服务器</p>
+          <p class="header-sub">二维码连接 · 原图直传</p>
         </div>
       </div>
       <div id="connection-status" class="conn-status disconnected">
@@ -33,9 +32,9 @@
 
     <main id="main-content">
 
-      <!-- ==================== SENDER SECTION ==================== -->
+      <!-- ========== SENDER ========== -->
       <section class="role-section">
-        <h2 class="role-title">📤 我是发送方</h2>
+        <h2 class="role-title">📤 发送方</h2>
 
         <!-- Drop zone -->
         <div id="drop-zone" class="drop-zone">
@@ -50,36 +49,42 @@
         <!-- File grid -->
         <div id="file-grid" class="file-grid hidden"></div>
         <div id="file-toolbar" class="toolbar hidden">
-          <button id="btn-add" class="btn btn-secondary">+ 添加图片</button>
+          <button id="btn-add" class="btn btn-secondary">+ 添加</button>
           <button id="btn-clear" class="btn btn-outline">清空</button>
         </div>
 
-        <!-- Generate offer button -->
         <button id="btn-share" class="btn btn-primary btn-large hidden">
-          📤 生成连接码，分享给好友
+          📱 生成二维码
         </button>
 
-        <!-- Step 1: Show offer -->
+        <!-- Step 1: Show QR -->
         <div id="sender-step1" class="signal-panel hidden">
-          <div class="step-num">第 1 步</div>
-          <p class="step-desc"><strong>📤 分享连接码给好友</strong> — 点击下面按钮，直接选微信发送</p>
-          <textarea id="sender-offer-text" readonly class="signal-ta"></textarea>
-          <div class="btn-row-dual">
-            <button id="btn-share-offer" class="btn btn-primary" style="flex:1">📤 分享到微信</button>
-            <button id="btn-copy-offer" class="btn btn-outline btn-small">复制备用</button>
-          </div>
-          <p class="step-hint">发送后等待好友回复</p>
+          <div class="step-num">请好友扫码连接</div>
+          <div id="qr-container" class="qr-container"></div>
+
+          <p class="step-hint">好友打开 PixShare，点「扫码接收」拍摄此二维码</p>
 
           <hr class="signal-divider">
 
-          <div class="step-num">第 2 步</div>
-          <p class="step-desc">好友回复后，<strong>复制好友的消息 → 粘贴到下面</strong>（切回本页面自动检测剪贴板）</p>
-          <textarea id="sender-answer-input" class="signal-ta" rows="3" placeholder="粘贴好友回复的 Answer...（切回页面自动粘贴）"></textarea>
+          <!-- Text fallback (hidden by default) -->
+          <div id="sender-text-fallback" class="hidden">
+            <p class="step-desc">或复制连接码给好友：</p>
+            <div class="link-row">
+              <textarea id="sender-offer-text" readonly class="signal-ta" rows="3"></textarea>
+              <button id="btn-copy-offer" class="btn btn-outline btn-small">复制</button>
+            </div>
+          </div>
+
+          <div class="step-num">好友回复后：</div>
+          <p class="step-desc">让好友用 PixShare 回复一个 Answer QR</p>
+          <button id="btn-scan-answer" class="btn btn-outline btn-large">📷 扫描好友的 Answer QR 码</button>
+
+          <p class="step-hint">或手动粘贴 Answer：</p>
+          <textarea id="sender-answer-input" class="signal-ta" rows="2" placeholder="粘贴好友回复的 Answer..."></textarea>
           <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 建立连接</button>
-          <p class="step-hint">💡 切回本页面时<strong>自动检测剪贴板</strong>，无需手动粘贴</p>
         </div>
 
-        <!-- Step 2: Connected, sending -->
+        <!-- Connected, sending -->
         <div id="sender-connected" class="hidden">
           <div id="transfer-progress" class="transfer-progress">
             <div class="progress-header">
@@ -94,29 +99,35 @@
 
       <hr class="role-divider">
 
-      <!-- ==================== RECEIVER SECTION ==================== -->
-      <section class="role-section" id="receiver-area">
-        <h2 class="role-title">📥 我是接收方</h2>
+      <!-- ========== RECEIVER ========== -->
+      <section class="role-section">
+        <h2 class="role-title">📥 接收方</h2>
 
-        <!-- Step 1: Paste offer -->
+        <!-- Step 0: Scan QR -->
         <div id="receiver-step1">
-          <div class="step-num">第 1 步</div>
-          <p class="step-desc"><strong>复制发送方的连接码</strong>，粘贴到下面（切回自动检测）</p>
-          <textarea id="recv-offer-input" class="signal-ta" rows="5" placeholder="粘贴发送方发来的连接码...（切回页面自动粘贴）"></textarea>
-          <button id="btn-recv-start" class="btn btn-primary btn-large">🔗 解析连接码</button>
-          <p class="step-hint">💡 从微信切回来时<strong>自动读取剪贴板</strong></p>
+          <button id="btn-start-scan" class="btn btn-primary btn-large">📷 扫码接收</button>
+          <p class="step-hint" style="margin-top:8px">或粘贴连接码：</p>
+          <textarea id="recv-offer-input" class="signal-ta" rows="3" placeholder="粘贴发送方的连接码..."></textarea>
+          <button id="btn-recv-start" class="btn btn-secondary btn-large">解析连接码</button>
         </div>
 
-        <!-- Step 2: Show answer -->
+        <!-- Scan area -->
+        <div id="recv-scan-area" class="hidden">
+          <p class="step-desc" style="text-align:center">对准发送方屏幕上的 QR 码</p>
+          <div id="scan-container"></div>
+        </div>
+
+        <!-- Step 2: Show Answer QR -->
         <div id="receiver-step2" class="signal-panel hidden">
-          <div class="step-num">第 2 步</div>
-          <p class="step-desc"><strong>📤 回复好友</strong> — 点击下面按钮，直接选微信发送</p>
-          <textarea id="recv-answer-text" readonly class="signal-ta"></textarea>
-          <div class="btn-row-dual">
-            <button id="btn-share-answer" class="btn btn-primary" style="flex:1">📤 回复好友</button>
+          <div class="step-num">连接码已解析！请回复：</div>
+          <div id="recv-answer-qr" class="qr-container"></div>
+          <p class="step-hint">让发送方扫描此 QR 码，或用下方按钮复制</p>
+
+          <hr class="signal-divider">
+          <div class="link-row">
+            <textarea id="recv-answer-text" readonly class="signal-ta" rows="3"></textarea>
             <button id="btn-copy-answer" class="btn btn-outline btn-small">复制备用</button>
           </div>
-          <p class="step-hint">回复后自动建立 P2P 连接</p>
         </div>
 
         <!-- Receiving -->
@@ -150,11 +161,13 @@
       </section>
     </main>
 
-    <!-- Toast -->
     <div id="toast-container" class="toast-container"></div>
   </div>
 
+  <script src="./lib/qrcode.min.js"></script>
+  <script src="./lib/jsQR.min.js"></script>
   <script src="./js/utils.js"></script>
+  <script src="./js/qr-utils.js"></script>
   <script src="./js/ui-controller.js"></script>
   <script src="./js/file-handler.js"></script>
   <script src="./js/peer-manager.js"></script>
