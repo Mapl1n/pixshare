@@ -19,7 +19,19 @@ PIX.PeerManager = (function () {
   var _code = '';
   var _offerSDP = '';
 
-  var ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  var ICE_SERVERS = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // Free TURN for cross-network fallback (limited bandwidth)
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ]
+  };
   var CHUNK_SIZE = 16 * 1024;
 
   // ---- Init ----
@@ -60,9 +72,9 @@ function senderCreateRoom() {
       PIX.Relay.listenJoinRequest(_onJoinRequest);
       UI.setConnStatus('connected', '等待好友申请加入...');
     }).catch(function (err) {
-      console.error('Sender error:', err);
-      UI.toast('连接失败: ' + err.message, 'error');
-      UI.setConnStatus('disconnected', '连接失败');
+      console.error('Sender MQTT error (non-fatal):', err);
+      // MQTT might auto-recover, don't show error unless P2P also fails
+      UI.setConnStatus('connecting', '重连中...');
     });
   }
 
@@ -84,7 +96,10 @@ function senderCreateRoom() {
 
     _pc.oniceconnectionstatechange = function () {
       var s = _pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', '已连接 ✅');
+      if (s === 'connected' || s === 'completed') {
+        PIX.Relay.disconnect(); // Kill MQTT, no longer needed
+        UI.setConnStatus('connected', '已连接 ✅');
+      }
     };
 
     _pc.createOffer()
@@ -118,8 +133,10 @@ function senderCreateRoom() {
         });
       })
       .catch(function (err) {
-        console.error('Confirm error:', err);
-        UI.toast('连接失败: ' + err.message, 'error');
+        if (!_transferComplete) {
+          console.error('Confirm error:', err);
+          UI.toast('连接失败，请重试', 'error');
+        }
       });
   }
 
@@ -149,9 +166,10 @@ function senderCreateRoom() {
         });
       });
     }).catch(function (err) {
-      console.error('Receiver error:', err);
-      UI.toast('连接失败: ' + err.message, 'error');
-      UI.setConnStatus('disconnected', '连接失败');
+      if (!_pc || (_pc.iceConnectionState !== 'connected' && _pc.iceConnectionState !== 'completed')) {
+        console.error('Receiver MQTT error:', err);
+        UI.setConnStatus('connecting', '重连中...');
+      }
     });
   }
 
@@ -182,13 +200,18 @@ function senderCreateRoom() {
         UI.setConnStatus('connecting', '等待 P2P 连接...');
       })
       .catch(function (err) {
-        console.error('Answer creation failed:', err);
-        UI.toast('连接失败: ' + err.message, 'error');
+        if (!_transferComplete) {
+          console.error('Answer creation failed:', err);
+          UI.toast('连接失败，请重试', 'error');
+        }
       });
 
     _pc.oniceconnectionstatechange = function () {
       var s = _pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', 'P2P 已连接！等待接收...');
+      if (s === 'connected' || s === 'completed') {
+        PIX.Relay.disconnect(); // Kill MQTT, no longer needed
+        UI.setConnStatus('connected', 'P2P 已连接！等待接收...');
+      }
     };
   }
 
