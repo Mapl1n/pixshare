@@ -56,24 +56,27 @@
 
         <!-- Generate offer button -->
         <button id="btn-share" class="btn btn-primary btn-large hidden">
-          📤 生成连接码
+          📤 生成连接码，分享给好友
         </button>
 
         <!-- Step 1: Show offer -->
         <div id="sender-step1" class="signal-panel hidden">
           <div class="step-num">第 1 步</div>
-          <p class="step-desc">这是一段<strong>连接码（Offer）</strong>— 全选复制，<strong>通过微信发给好友</strong></p>
-          <p class="step-hint-small">（这不是链接，是 WebRTC 握手数据）</p>
+          <p class="step-desc"><strong>📤 分享连接码给好友</strong> — 点击下面按钮，直接选微信发送</p>
           <textarea id="sender-offer-text" readonly class="signal-ta"></textarea>
-          <button id="btn-copy-offer" class="btn btn-primary btn-large">📋 复制 → 到微信粘贴发给好友</button>
-          <p class="step-hint">发给好友后，本页面不要关，等待好友回传</p>
+          <div class="btn-row-dual">
+            <button id="btn-share-offer" class="btn btn-primary" style="flex:1">📤 分享到微信</button>
+            <button id="btn-copy-offer" class="btn btn-outline btn-small">复制备用</button>
+          </div>
+          <p class="step-hint">发送后等待好友回复</p>
 
           <hr class="signal-divider">
 
           <div class="step-num">第 2 步</div>
-          <p class="step-desc">好友会发回一段<strong>Answer 连接码</strong>，粘贴到下面</p>
-          <textarea id="sender-answer-input" class="signal-ta" rows="3" placeholder="在此粘贴好友回传的 Answer 文本..."></textarea>
-          <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 粘贴 Answer，完成连接</button>
+          <p class="step-desc">好友回复后，<strong>复制好友的消息 → 粘贴到下面</strong>（切回本页面自动检测剪贴板）</p>
+          <textarea id="sender-answer-input" class="signal-ta" rows="3" placeholder="粘贴好友回复的 Answer...（切回页面自动粘贴）"></textarea>
+          <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 建立连接</button>
+          <p class="step-hint">💡 切回本页面时<strong>自动检测剪贴板</strong>，无需手动粘贴</p>
         </div>
 
         <!-- Step 2: Connected, sending -->
@@ -98,18 +101,22 @@
         <!-- Step 1: Paste offer -->
         <div id="receiver-step1">
           <div class="step-num">第 1 步</div>
-          <p class="step-desc">在微信里<strong>长按发送方发来的连接码</strong> → 全选复制 → 粘贴到下面</p>
-          <textarea id="recv-offer-input" class="signal-ta" rows="5" placeholder="在此粘贴发送方发来的连接码（Offer）..."></textarea>
+          <p class="step-desc"><strong>复制发送方的连接码</strong>，粘贴到下面（切回自动检测）</p>
+          <textarea id="recv-offer-input" class="signal-ta" rows="5" placeholder="粘贴发送方发来的连接码...（切回页面自动粘贴）"></textarea>
           <button id="btn-recv-start" class="btn btn-primary btn-large">🔗 解析连接码</button>
+          <p class="step-hint">💡 从微信切回来时<strong>自动读取剪贴板</strong></p>
         </div>
 
         <!-- Step 2: Show answer -->
         <div id="receiver-step2" class="signal-panel hidden">
           <div class="step-num">第 2 步</div>
-          <p class="step-desc">下面自动生成了<strong>Answer 连接码</strong>— 全选复制，<strong>发回给发送方</strong></p>
+          <p class="step-desc"><strong>📤 回复好友</strong> — 点击下面按钮，直接选微信发送</p>
           <textarea id="recv-answer-text" readonly class="signal-ta"></textarea>
-          <button id="btn-copy-answer" class="btn btn-primary btn-large">📋 复制 Answer → 到微信发回给对方</button>
-          <p class="step-hint">发回后等待发送方确认，P2P 连接自动建立</p>
+          <div class="btn-row-dual">
+            <button id="btn-share-answer" class="btn btn-primary" style="flex:1">📤 回复好友</button>
+            <button id="btn-copy-answer" class="btn btn-outline btn-small">复制备用</button>
+          </div>
+          <p class="step-hint">回复后自动建立 P2P 连接</p>
         </div>
 
         <!-- Receiving -->
