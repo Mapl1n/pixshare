@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PixShare">
-  <meta name="description" content="P2P 图片无损直传 — QR 码扫码连接，零复制粘贴">
+  <meta name="description" content="P2P 图片无损直传 — 6 位数字码，无需复制粘贴">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
@@ -21,7 +21,7 @@
         <div class="logo">📸</div>
         <div>
           <h1>PixShare</h1>
-          <p class="header-sub">二维码连接 · 原图直传</p>
+          <p class="header-sub">6 位数字连接 · 原图直传</p>
         </div>
       </div>
       <div id="connection-status" class="conn-status disconnected">
@@ -36,7 +36,6 @@
       <section class="role-section">
         <h2 class="role-title">📤 发送方</h2>
 
-        <!-- Drop zone -->
         <div id="drop-zone" class="drop-zone">
           <div class="drop-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -46,36 +45,38 @@
           <input type="file" id="file-input" multiple accept="image/*,.heic,.heif,.avif" hidden>
         </div>
 
-        <!-- File grid -->
         <div id="file-grid" class="file-grid hidden"></div>
         <div id="file-toolbar" class="toolbar hidden">
           <button id="btn-add" class="btn btn-secondary">+ 添加</button>
           <button id="btn-clear" class="btn btn-outline">清空</button>
         </div>
 
-        <button id="btn-share" class="btn btn-primary btn-large hidden">
-          📱 生成二维码
-        </button>
+        <button id="btn-share" class="btn btn-primary btn-large hidden">开始发送</button>
 
-        <!-- Step 1: Show QR + text dual path -->
-        <div id="sender-step1" class="signal-panel hidden">
-          <div class="step-num">请好友连接</div>
-          <p class="step-desc">方法一：<strong>好友扫码</strong>（推荐手机接收）</p>
-          <div id="qr-container" class="qr-container"></div>
-
-          <p class="step-desc" style="margin-top:12px">方法二：<strong>复制下方文本发给好友</strong>（适合桌面接收）</p>
-          <textarea id="sender-offer-text" readonly class="signal-ta" rows="2"></textarea>
-          <button id="btn-copy-offer" class="btn btn-secondary">📋 复制连接码</button>
-
-          <hr class="signal-divider">
-
-          <div class="step-num">好友回复后，在此粘贴：</div>
-          <p class="step-hint">好友连接后会生成一段回复码，复制后粘贴到下方</p>
-          <textarea id="sender-answer-input" class="signal-ta" rows="2" placeholder="粘贴好友的回复码..."></textarea>
-          <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 粘贴回复码，完成连接</button>
+        <!-- Sender: enter 6-digit code -->
+        <div id="sender-panel" class="hidden">
+          <p class="panel-desc">输入一个 <strong>6 位数字</strong> 作为房间号：</p>
+          <div class="digit-row" id="sender-digits">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="sdigit1">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="sdigit2">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="sdigit3">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="sdigit4">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="sdigit5">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="sdigit6">
+          </div>
+          <button id="btn-create-room" class="btn btn-primary btn-large">创建房间</button>
+          <p class="panel-hint">把这 6 位数字告诉好友，好友输入同一个数字即可连接</p>
         </div>
 
-        <!-- Connected, sending -->
+        <!-- Sender: waiting -->
+        <div id="sender-waiting" class="hidden waiting-box">
+          <div class="waiting-icon">⏳</div>
+          <p class="waiting-title">等待好友加入...</p>
+          <p class="waiting-code">房间号：<strong class="code-display"></strong></p>
+          <p class="waiting-hint">好友输入相同 6 位数字后自动连接</p>
+        </div>
+
+        <!-- Sender: connected -->
         <div id="sender-connected" class="hidden">
           <div id="transfer-progress" class="transfer-progress">
             <div class="progress-header">
@@ -94,32 +95,29 @@
       <section class="role-section">
         <h2 class="role-title">📥 接收方</h2>
 
-        <!-- Step 0: Scan QR or paste text -->
-        <div id="receiver-step1">
-          <button id="btn-start-scan" class="btn btn-primary btn-large">📷 扫码连接（推荐）</button>
-          <p class="step-hint" style="margin:12px 0">— 或 —</p>
-          <textarea id="recv-offer-input" class="signal-ta" rows="2" placeholder="粘贴发送方的连接码..."></textarea>
-          <button id="btn-recv-start" class="btn btn-secondary">📋 解析连接码</button>
+        <!-- Receiver: enter 6-digit code -->
+        <div id="receiver-panel">
+          <p class="panel-desc">输入发送方给的 <strong>6 位数字</strong>：</p>
+          <div class="digit-row" id="receiver-digits">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="rdigit1">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="rdigit2">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="rdigit3">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="rdigit4">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="rdigit5">
+            <input type="text" inputmode="numeric" maxlength="1" class="digit-input" id="rdigit6">
+          </div>
+          <button id="btn-join-room" class="btn btn-primary btn-large">加入房间</button>
         </div>
 
-        <!-- Scan area (hidden until scan button clicked) -->
-        <div id="recv-scan-area" class="hidden">
-          <p class="step-desc" style="text-align:center">对准发送方屏幕上的 QR 码</p>
-          <div id="scan-container"></div>
+        <!-- Receiver: waiting -->
+        <div id="receiver-waiting" class="hidden waiting-box">
+          <div class="waiting-icon">⏳</div>
+          <p class="waiting-title">已加入房间</p>
+          <p class="waiting-code">房间号：<strong class="code-display"></strong></p>
+          <p class="waiting-hint">等待发送方确认...</p>
         </div>
 
-        <!-- Step 2: Show Answer QR + text -->
-        <div id="receiver-step2" class="signal-panel hidden">
-          <div class="step-num">已连接！请回复给发送方：</div>
-          <p class="step-desc">方法一：让<strong>发送方扫码</strong>此 Answer QR</p>
-          <div id="recv-answer-qr" class="qr-container"></div>
-
-          <p class="step-desc" style="margin-top:12px">方法二：<strong>复制下方文本发给发送方</strong></p>
-          <textarea id="recv-answer-text" readonly class="signal-ta" rows="2"></textarea>
-          <button id="btn-copy-answer" class="btn btn-secondary">📋 复制回复码发给对方</button>
-        </div>
-
-        <!-- Receiving -->
+        <!-- Receiver: receiving -->
         <div id="receiver-receiving" class="hidden receiver-state">
           <div class="progress-header">
             <span>📥 正在接收...</span>
@@ -153,10 +151,9 @@
     <div id="toast-container" class="toast-container"></div>
   </div>
 
-  <script src="./lib/qrcode.min.js"></script>
-  <script src="./lib/jsQR.min.js"></script>
+  <script src="./lib/mqtt.min.js"></script>
   <script src="./js/utils.js"></script>
-  <script src="./js/qr-utils.js"></script>
+  <script src="./js/mqtt-relay.js"></script>
   <script src="./js/ui-controller.js"></script>
   <script src="./js/file-handler.js"></script>
   <script src="./js/peer-manager.js"></script>

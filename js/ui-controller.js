@@ -1,5 +1,5 @@
 /**
- * ui-controller.js — DOM rendering for PixShare (QR edition)
+ * ui-controller.js — DOM rendering for PixShare (6-digit code edition)
  */
 PIX.UI = (function () {
   'use strict';
@@ -13,19 +13,17 @@ PIX.UI = (function () {
     els.btnShare     = document.getElementById('btn-share');
 
     // Sender
-    els.senderStep1  = document.getElementById('sender-step1');
-    els.qrContainer  = document.getElementById('qr-container');
+    els.senderPanel  = document.getElementById('sender-panel');
     els.senderConnected = document.getElementById('sender-connected');
     els.transferProg = document.getElementById('transfer-progress');
     els.sendProgBar  = document.getElementById('send-progress-bar');
     els.sendProgText = document.getElementById('send-progress-text');
     els.sendFileName = document.getElementById('send-file-name');
+    els.senderWait   = document.getElementById('sender-waiting');
 
     // Receiver
-    els.recvStep1    = document.getElementById('receiver-step1');
-    els.recvScanArea = document.getElementById('recv-scan-area');
-    els.recvStep2    = document.getElementById('receiver-step2');
-    els.recvAnswerQR = document.getElementById('recv-answer-qr');
+    els.recvPanel    = document.getElementById('receiver-panel');
+    els.recvWait     = document.getElementById('receiver-waiting');
     els.recvReceiving = document.getElementById('receiver-receiving');
     els.recvComplete = document.getElementById('receiver-complete');
     els.recvError    = document.getElementById('receiver-error');
@@ -37,41 +35,73 @@ PIX.UI = (function () {
     els.recvFileName = document.getElementById('recv-file-name');
     els.iosHint      = document.getElementById('ios-hint');
 
-    // Header / toast
+    // Header
     els.connText = document.getElementById('conn-text');
     els.connStatus = document.getElementById('connection-status');
     els.toastContainer = document.getElementById('toast-container');
 
-    // Init scan area
-    _initScanArea();
+    // Digit inputs: auto-focus next
+    _setupDigitInputs();
   }
 
-  function _initScanArea() {
-    document.getElementById('btn-start-scan').addEventListener('click', function () {
-      showScannerArea();
+  function _setupDigitInputs() {
+    ['sdigit', 'rdigit'].forEach(function(prefix) {
+      for (var i = 1; i <= 6; i++) {
+        var el = document.getElementById(prefix + i);
+        if (!el) continue;
+        el.addEventListener('input', function(e) {
+          var val = this.value.replace(/\D/g, '');
+          this.value = val.slice(0, 1);
+          if (val && i < 6) {
+            var next = document.getElementById(prefix + (i + 1));
+            if (next) next.focus();
+          }
+        });
+        el.addEventListener('keydown', function(e) {
+          if (e.key === 'Backspace' && !this.value && i > 1) {
+            var prev = document.getElementById(prefix + (i - 1));
+            if (prev) prev.focus();
+          }
+        });
+        el.addEventListener('paste', function(e) {
+          e.preventDefault();
+          var text = (e.clipboardData || window.clipboardData).getData('text');
+          var digits = text.replace(/\D/g, '').slice(0, 6);
+          for (var j = 0; j < digits.length; j++) {
+            var target = document.getElementById(prefix + (j + 1));
+            if (target) target.value = digits[j];
+          }
+        });
+      }
     });
   }
 
   function resetAll() {
-    els.senderStep1.classList.add('hidden');
+    els.senderPanel.classList.add('hidden');
+    els.senderWait.classList.add('hidden');
     els.senderConnected.classList.add('hidden');
     els.transferProg.classList.add('hidden');
-    els.recvStep1.classList.remove('hidden');
-    els.recvScanArea.classList.add('hidden');
-    els.recvStep2.classList.add('hidden');
+    els.recvPanel.classList.remove('hidden');
+    els.recvWait.classList.add('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvComplete.classList.add('hidden');
     els.recvError.classList.add('hidden');
     setConnStatus('disconnected', '未连接');
+    // Clear digits
+    for (var i = 1; i <= 6; i++) {
+      var s = document.getElementById('sdigit' + i);
+      var r = document.getElementById('rdigit' + i);
+      if (s) s.value = '';
+      if (r) r.value = '';
+    }
   }
 
-  // ---- Connection Status ----
   function setConnStatus(state, text) {
     els.connStatus.className = 'conn-status ' + state;
     els.connText.textContent = text;
   }
 
-  // ---- Sender: File Grid ----
+  // ---- File Grid ----
   function renderFileGrid(files) {
     if (!files.length) {
       els.dropZone.classList.remove('hidden');
@@ -117,96 +147,46 @@ PIX.UI = (function () {
       });
     });
 
-    els.btnShare.textContent = '📤 生成二维码（' + files.length + ' 张）';
+    els.btnShare.textContent = '开始发送（' + files.length + ' 张）';
   }
 
-  // ---- Sender: Show QR Code ----
-  function showSenderStep1() {
-    els.senderStep1.classList.remove('hidden');
-    els.senderConnected.classList.add('hidden');
-    els.transferProg.classList.add('hidden');
-  }
-
-  function showOfferQR(sdp) {
-    els.qrContainer.innerHTML = '';
-    var ok = PIX.QR.generateQRCode(sdp, els.qrContainer);
-    if (!ok) {
-      // QR too big — text fallback already visible
-      els.qrContainer.innerHTML = '<p style="color:#92400e;text-align:center;padding:16px">QR 码生成失败，请用下方文本连接码</p>';
-      document.getElementById('sender-offer-text').value = sdp;
-    }
-  }
-
-  function showOfferText(sdp) {
-    document.getElementById('sender-offer-text').value = sdp;
+  // ---- Sender ----
+  function showSenderWaiting(code) {
+    els.senderPanel.classList.add('hidden');
+    els.senderWait.classList.remove('hidden');
+    els.senderWait.querySelector('.code-display').textContent = code;
   }
 
   function showSenderConnected() {
-    els.senderStep1.style.opacity = '0.5';
+    els.senderWait.classList.add('hidden');
     els.senderConnected.classList.remove('hidden');
     els.transferProg.classList.remove('hidden');
   }
 
-  // ---- Receiver: Scan ----
-  var _scanner = null;
-
-  function showScannerArea() {
-    els.recvStep1.classList.add('hidden');
-    els.recvScanArea.classList.remove('hidden');
-    els.qrContainer.innerHTML = '';
-
-    var container = document.getElementById('scan-container');
-    container.innerHTML = '<p style="text-align:center;padding:20px;color:#6b7280">正在启动摄像头...</p>';
-
-    _scanner = PIX.QR.startScanner(
-      function (result) {
-        // QR detected!
-        PIX.QR.stopScanner(_scanner);
-        els.recvScanArea.classList.add('hidden');
-        // Trigger PeerManager with the scanned SDP
-        document.getElementById('recv-offer-input').value = result;
-        PIX.PeerManager.receiverStart();
-      },
-      function (err) {
-        PIX.QR.stopScanner(_scanner);
-        els.recvScanArea.classList.add('hidden');
-        els.recvStep1.classList.remove('hidden');
-        toast(err, 'error');
-      }
-    );
-
-    container.innerHTML = '';
-    container.appendChild(_scanner.element);
+  function showSendProgress() { els.transferProg.classList.remove('hidden'); }
+  function updateSendProgress(pct, fn) {
+    els.sendProgBar.style.width = pct + '%';
+    els.sendProgText.textContent = pct + '%';
+    if (fn) els.sendFileName.textContent = fn;
   }
 
-  // ---- Receiver Steps ----
-  function showReceiverStep2() {
-    els.recvStep1.classList.add('hidden');
-    els.recvScanArea.classList.add('hidden');
-    els.recvStep2.classList.remove('hidden');
-    els.recvReceiving.classList.add('hidden');
-    els.recvComplete.classList.add('hidden');
-  }
-
-  function showAnswerQR(sdp) {
-    els.recvAnswerQR.innerHTML = '';
-    PIX.QR.generateQRCode(sdp, els.recvAnswerQR);
-  }
-
-  function showAnswerText(sdp) {
-    document.getElementById('recv-answer-text').value = sdp;
+  // ---- Receiver ----
+  function showReceiverWaiting(code) {
+    els.recvPanel.classList.add('hidden');
+    els.recvWait.classList.remove('hidden');
+    els.recvWait.querySelector('.code-display').textContent = code;
   }
 
   function showReceiverReceiving() {
-    els.recvStep2.classList.add('hidden');
+    els.recvWait.classList.add('hidden');
     els.recvReceiving.classList.remove('hidden');
     els.recvComplete.classList.add('hidden');
   }
 
-  function updateRecvProgress(pct, fileName) {
+  function updateRecvProgress(pct, fn) {
     els.recvProgBar.style.width = pct + '%';
     els.recvProgText.textContent = pct + '%';
-    if (fileName) els.recvFileName.textContent = fileName;
+    if (fn) els.recvFileName.textContent = fn;
   }
 
   function showReceiverComplete(images) {
@@ -219,9 +199,8 @@ PIX.UI = (function () {
     var html = '';
     for (var i = 0; i < images.length; i++) {
       var img = images[i], name = escapeHtml(img.name);
-      var url = URL.createObjectURL(img.blob);
       html += '<div class="recv-image-card" data-idx="' + i + '">'
-        + '<img src="' + url + '" alt="' + name + '" loading="lazy">'
+        + '<img src="' + URL.createObjectURL(img.blob) + '" alt="' + name + '" loading="lazy">'
         + '<div class="card-label">' + name + '</div></div>';
     }
     els.recvImgGrid.innerHTML = html;
@@ -234,34 +213,22 @@ PIX.UI = (function () {
   }
 
   function showReceiverError(msg) {
-    els.recvStep1.classList.add('hidden');
-    els.recvScanArea.classList.add('hidden');
-    els.recvStep2.classList.add('hidden');
+    els.recvWait.classList.add('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvError.classList.remove('hidden');
     els.recvErrorMsg.textContent = msg;
   }
 
-  // ---- Sender Progress ----
-  function showSendProgress() { els.transferProg.classList.remove('hidden'); }
-  function updateSendProgress(pct, fileName) {
-    els.sendProgBar.style.width = pct + '%';
-    els.sendProgText.textContent = pct + '%';
-    if (fileName) els.sendFileName.textContent = fileName;
-  }
-
-  // ---- Lightbox ----
   function showLightbox(img) {
     var lb = document.createElement('div'); lb.className = 'lightbox';
-    var el = document.createElement('img'); el.src = URL.createObjectURL(img.blob);
+    lb.appendChild(document.createElement('img')).src = URL.createObjectURL(img.blob);
     var btn = document.createElement('button'); btn.className = 'lightbox-close'; btn.textContent = '✕';
     btn.onclick = function () { document.body.removeChild(lb); };
-    lb.appendChild(el); lb.appendChild(btn);
+    lb.appendChild(btn);
     lb.onclick = function (e) { if (e.target === lb) document.body.removeChild(lb); };
     document.body.appendChild(lb);
   }
 
-  // ---- Toast ----
   function toast(msg, type) {
     var t = document.createElement('div'); t.className = 'toast ' + (type || '');
     t.textContent = msg; t.setAttribute('role', 'alert');
@@ -274,13 +241,10 @@ PIX.UI = (function () {
   return {
     init: init, resetAll: resetAll, setConnStatus: setConnStatus,
     renderFileGrid: renderFileGrid,
-    showSenderStep1: showSenderStep1, showOfferQR: showOfferQR, showOfferText: showOfferText,
-    showSenderConnected: showSenderConnected,
+    showSenderWaiting: showSenderWaiting, showSenderConnected: showSenderConnected,
     showSendProgress: showSendProgress, updateSendProgress: updateSendProgress,
-    showScannerArea: showScannerArea,
-    showReceiverStep2: showReceiverStep2, showAnswerQR: showAnswerQR, showAnswerText: showAnswerText,
-    showReceiverReceiving: showReceiverReceiving, updateRecvProgress: updateRecvProgress,
-    showReceiverComplete: showReceiverComplete, showReceiverError: showReceiverError,
-    showLightbox: showLightbox, toast: toast
+    showReceiverWaiting: showReceiverWaiting, showReceiverReceiving: showReceiverReceiving,
+    updateRecvProgress: updateRecvProgress, showReceiverComplete: showReceiverComplete,
+    showReceiverError: showReceiverError, showLightbox: showLightbox, toast: toast
   };
 })();

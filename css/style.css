@@ -144,6 +144,31 @@ body {
 .btn-row-dual { display: flex; gap: 8px; align-items: center; }
 .btn-row-dual .btn-small { flex-shrink: 0; }
 
+/* ----- 6-digit code input ----- */
+.panel-desc { font-size: 0.9rem; color: var(--color-text); margin-bottom: 4px; }
+.panel-hint { font-size: 0.75rem; color: var(--color-text-muted); margin-top: 8px; text-align: center; }
+.digit-row { display: flex; gap: 8px; justify-content: center; margin: 12px 0; }
+.digit-input {
+  width: 44px; height: 56px; text-align: center; font-size: 1.6rem; font-weight: 700;
+  border: 2px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text);
+  font-family: var(--font-family); outline: none; transition: border-color 0.2s;
+  -webkit-appearance: none;
+}
+.digit-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
+
+/* ----- Waiting box ----- */
+.waiting-box {
+  background: var(--color-primary-light); border: 1px solid #ddd6fe;
+  border-radius: var(--radius); padding: 32px 24px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.waiting-icon { font-size: 48px; animation: pulse 1s ease-in-out infinite; }
+.waiting-title { font-size: 1rem; font-weight: 700; color: var(--color-primary); }
+.waiting-code { font-size: 0.9rem; color: var(--color-text); }
+.waiting-code strong { font-size: 1.6rem; letter-spacing: 8px; color: var(--color-primary); }
+.waiting-hint { font-size: 0.78rem; color: var(--color-text-muted); }
+
 /* ----- Progress ----- */
 .transfer-progress { display: flex; flex-direction: column; gap: 8px; }
 .progress-header { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; }

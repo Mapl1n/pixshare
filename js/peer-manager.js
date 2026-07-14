@@ -1,8 +1,8 @@
 /**
- * peer-manager.js — Pure WebRTC + QR or text exchange
+ * peer-manager.js — WebRTC P2P + MQTT 6-digit room relay
  *
- * Bidirectional: every QR has a prominent "or paste text" fallback.
- * Works for all scenarios: desktop↔desktop, desktop↔phone, phone↔phone.
+ * Sender: enters 6-digit code → publishes SDP offer → waits for answer → P2P
+ * Receiver: enters same 6-digit code → reads offer → publishes answer → P2P
  */
 PIX.PeerManager = (function () {
   'use strict';
@@ -13,24 +13,44 @@ PIX.PeerManager = (function () {
   var _pendingFiles = null;
   var _receivedImages = [];
   var _transferComplete = false;
-  var _offerSDP = '';
-  var _answerSDP = '';
+  var _code = '';
 
   var ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   var CHUNK_SIZE = 16 * 1024;
 
   // ---- Init ----
   function init() {
-    document.getElementById('btn-share').addEventListener('click', senderStart);
-    document.getElementById('btn-copy-offer').addEventListener('click', function () {
-      copyTextFallback('sender-offer-text');
+    // Sender flow: show digit panel when "开始发送" clicked
+    document.getElementById('btn-share').addEventListener('click', function () {
+      document.getElementById('sender-panel').classList.remove('hidden');
+      document.getElementById('btn-share').classList.add('hidden');
     });
-    document.getElementById('btn-paste-answer').addEventListener('click', senderProcessAnswer);
-    document.getElementById('btn-recv-start').addEventListener('click', receiverStart);
-    document.getElementById('btn-copy-answer').addEventListener('click', function () {
-      copyTextFallback('recv-answer-text');
-    });
+    document.getElementById('btn-create-room').addEventListener('click', senderStart);
+    document.getElementById('btn-join-room').addEventListener('click', receiverStart);
     document.getElementById('btn-retry').addEventListener('click', function () { UI.resetAll(); });
+  }
+
+  // ================================================================
+  //  CODE INPUT HELPERS
+  // ================================================================
+  function getDigitCode(prefix) {
+    var digits = '';
+    for (var i = 1; i <= 6; i++) {
+      var el = document.getElementById(prefix + i);
+      if (el) digits += el.value;
+    }
+    return digits;
+  }
+
+  function setDigitCode(prefix, code) {
+    for (var i = 1; i <= 6; i++) {
+      var el = document.getElementById(prefix + i);
+      if (el) el.value = code[i - 1] || '';
+    }
+  }
+
+  function isValidCode(code) {
+    return /^\d{6}$/.test(code);
   }
 
   // ================================================================
@@ -40,95 +60,108 @@ PIX.PeerManager = (function () {
     var files = PIX.FileHandler.getFiles();
     if (!files.length) { UI.toast('请先选择图片', 'warning'); return; }
 
-    _isSender = true; _pendingFiles = files; _transferComplete = false;
-    UI.showSenderStep1();
+    _code = getDigitCode('sdigit');
+    if (!isValidCode(_code)) { UI.toast('请输入 6 位数字连接码', 'warning'); return; }
 
-    _pc = new RTCPeerConnection(ICE_SERVERS);
-    _dc = _pc.createDataChannel('pixshare', { ordered: true });
-    _setupDataChannel(_dc, files);
-    _pc.onicecandidate = function (e) {};
+    _isSender = true;
+    _pendingFiles = files;
+    _transferComplete = false;
 
-    _pc.createOffer()
-      .then(function (o) { return _pc.setLocalDescription(o); })
-      .then(function () { return _waitForIce(_pc, 2000); })
-      .then(function () {
-        _offerSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
-        var compressed = PIX.QR.compressSDP(_offerSDP);
-        // Show QR
-        UI.showOfferQR(compressed);
-        // Also fill text area
-        document.getElementById('sender-offer-text').value = compressed;
-        UI.toast('📱 请好友扫码或复制下方文本', 'success');
-        // Auto-copy for easy paste
-        try { navigator.clipboard.writeText(compressed); } catch (e) {}
-      }).catch(function (err) {
-        console.error('Offer failed:', err);
-        UI.toast('创建连接失败: ' + err.message, 'error');
-      });
+    UI.showSenderWaiting(_code);
 
-    _pc.oniceconnectionstatechange = function () {
-      var s = _pc.iceConnectionState;
-      if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', '已连接 ✅');
-    };
+    // Connect to MQTT
+    PIX.Relay.connect(_code).then(function () {
+      // Create WebRTC offer
+      return _createOffer();
+    }).then(function (offerSDP) {
+      // Publish offer via MQTT
+      return PIX.Relay.publishOffer(offerSDP, _onAnswerReceived);
+    }).then(function () {
+      UI.setConnStatus('connecting', '等待好友输入 ' + _code + '...');
+    }).catch(function (err) {
+      console.error('Sender error:', err);
+      UI.toast('连接失败: ' + err.message, 'error');
+      UI.setConnStatus('disconnected', '连接失败');
+    });
   }
 
-  function senderProcessAnswer() {
-    var text = document.getElementById('sender-answer-input').value.trim();
-    // Auto-detect from clipboard if empty
-    if (!text && navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(function (t) {
-        if (t) { document.getElementById('sender-answer-input').value = t; senderProcessAnswer(); }
-      });
+  function _createOffer() {
+    return new Promise(function (resolve, reject) {
+      _pc = new RTCPeerConnection(ICE_SERVERS);
+      _dc = _pc.createDataChannel('pixshare', { ordered: true });
+      _setupDataChannel(_dc, _pendingFiles);
+      _pc.onicecandidate = function (e) {};
+
+      _pc.createOffer()
+        .then(function (o) { return _pc.setLocalDescription(o); })
+        .then(function () { return _waitForIce(_pc, 2000); })
+        .then(function () {
+          var sdp = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
+          resolve(sdp);
+        })
+        .catch(reject);
+
+      _pc.oniceconnectionstatechange = function () {
+        var s = _pc.iceConnectionState;
+        if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', '已连接 ✅');
+      };
+    });
+  }
+
+  function _onAnswerReceived(answerText) {
+    PIX.Relay.disconnect(); // No longer need MQTT
+    try {
+      var m = answerText.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
+      if (m) answerText = m[0];
+      var answer = JSON.parse(answerText);
+    } catch (e) {
+      UI.toast('收到无效的回复', 'error');
       return;
     }
-    if (!text) { UI.toast('请复制好友的回复，然后点击此按钮', 'warning'); return; }
-
-    // Extract JSON from text
-    var m = text.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
-    if (m) text = m[0];
-
-    var answer;
-    try { answer = JSON.parse(text); } catch (e) { UI.toast('回复格式不对，请确认完整复制', 'error'); return; }
-    if (!_pc) { UI.toast('请重新生成二维码', 'warning'); return; }
 
     _pc.setRemoteDescription(new RTCSessionDescription(answer)).then(function () {
       UI.showSenderConnected();
       UI.setConnStatus('connected', 'P2P 已连接！正在传图...');
     }).catch(function (err) {
-      UI.toast('连接失败，请确认文本完整。提示：长按消息→全选→复制', 'error');
+      UI.toast('连接失败: ' + err.message, 'error');
     });
-  }
-
-  function copyTextFallback(targetId) {
-    var ta = document.getElementById(targetId);
-    ta.select(); ta.setSelectionRange(0, 99999);
-    try { navigator.clipboard.writeText(ta.value); UI.toast('已复制！发给对方即可', 'success'); }
-    catch (e) { UI.toast('请手动全选复制', 'warning'); }
   }
 
   // ================================================================
   //  RECEIVER
   // ================================================================
   function receiverStart() {
-    var offerText = document.getElementById('recv-offer-input').value.trim();
-    if (!offerText && navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(function (t) {
-        if (t) { document.getElementById('recv-offer-input').value = t; receiverStart(); }
-      });
-      return;
-    }
-    if (!offerText) { UI.toast('请先让发送方生成二维码，然后复制连接码到此处', 'warning'); return; }
+    _code = getDigitCode('rdigit');
+    if (!isValidCode(_code)) { UI.toast('请输入 6 位数字连接码', 'warning'); return; }
 
+    _isSender = false;
+    _receivedImages = [];
+    _transferComplete = false;
+
+    UI.showReceiverWaiting(_code);
+
+    PIX.Relay.connect(_code).then(function () {
+      // Wait for offer from sender
+      PIX.Relay.waitForOffer(_onOfferReceived);
+      UI.setConnStatus('connecting', '已加入 ' + _code + '，等待发送方...');
+    }).catch(function (err) {
+      console.error('Receiver error:', err);
+      UI.toast('连接失败: ' + err.message, 'error');
+      UI.setConnStatus('disconnected', '连接失败');
+    });
+  }
+
+  function _onOfferReceived(offerText) {
     // Extract JSON
     var m = offerText.match(/\{[\s\S]*"type"\s*:\s*"offer"[\s\S]*\}/);
     if (m) offerText = m[0];
 
     var offer;
-    try { offer = JSON.parse(offerText); } catch (e) { UI.toast('连接码格式不对，请从 { 到 } 完整复制', 'error'); return; }
+    try { offer = JSON.parse(offerText); } catch (e) { UI.toast('收到无效的 Offer', 'error'); return; }
 
-    _isSender = false; _receivedImages = []; _transferComplete = false;
-    UI.showReceiverStep2();
+    UI.setConnStatus('connecting', '已收到连接码，正在回复...');
 
+    // Create peer and answer
     _pc = new RTCPeerConnection(ICE_SERVERS);
     _pc.ondatachannel = function (event) { _dc = event.channel; _setupReceiverChannel(_dc); };
     _pc.onicecandidate = function (e) {};
@@ -138,17 +171,15 @@ PIX.PeerManager = (function () {
       .then(function (a) { return _pc.setLocalDescription(a); })
       .then(function () { return _waitForIce(_pc, 2000); })
       .then(function () {
-        _answerSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
-        var compressed = PIX.QR.compressSDP(_answerSDP);
-        // Show Answer QR
-        UI.showAnswerQR(compressed);
-        // Fill text
-        document.getElementById('recv-answer-text').value = compressed;
-        // Auto-copy
-        try { navigator.clipboard.writeText(compressed); } catch (e) {}
-        UI.toast('✅ 连接码已复制！请发给发送方，或让对方扫码', 'success');
-      }).catch(function (err) {
-        console.error('Receiver error:', err);
+        var sdp = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
+        return PIX.Relay.publishAnswer(sdp);
+      })
+      .then(function () {
+        PIX.Relay.disconnect();
+        UI.setConnStatus('connecting', '等待 P2P 连接...');
+      })
+      .catch(function (err) {
+        console.error('Answer creation failed:', err);
         UI.toast('连接失败: ' + err.message, 'error');
       });
 
@@ -191,7 +222,7 @@ PIX.PeerManager = (function () {
     };
 
     dc.onclose = function () {
-      if (!_transferComplete && _receivedImages.length > 0) { UI.showReceiverComplete(_receivedImages); UI.toast('连接关闭，已接收 ' + _receivedImages.length + ' 张', 'warning'); }
+      if (!_transferComplete && _receivedImages.length > 0) { UI.showReceiverComplete(_receivedImages); UI.toast('连接已关闭，已接收 ' + _receivedImages.length + ' 张', 'warning'); }
     };
   }
 
@@ -206,11 +237,7 @@ PIX.PeerManager = (function () {
       f.file.arrayBuffer().then(function (b) {
         var sz = b.byteLength; dc.send(JSON.stringify({ type: 'file-start', name: f.displayName, size: sz, index: idx }));
         var o = 0;
-        function ck() {
-          if (o >= sz) { dc.send(JSON.stringify({ type: 'file-end', index: idx })); sb += sz; UI.updateSendProgress(Math.round(sb / ts * 100)); idx++; setTimeout(sn, 30); return; }
-          dc.send(b.slice(o, Math.min(o + CHUNK_SIZE, sz))); o += CHUNK_SIZE;
-          if (dc.bufferedAmount > CHUNK_SIZE * 8) setTimeout(ck, 80); else ck();
-        }
+        function ck() { if (o >= sz) { dc.send(JSON.stringify({ type: 'file-end', index: idx })); sb += sz; UI.updateSendProgress(Math.round(sb / ts * 100)); idx++; setTimeout(sn, 30); return; } dc.send(b.slice(o, Math.min(o + CHUNK_SIZE, sz))); o += CHUNK_SIZE; if (dc.bufferedAmount > CHUNK_SIZE * 8) setTimeout(ck, 80); else ck(); }
         ck();
       });
     }
@@ -227,9 +254,7 @@ PIX.PeerManager = (function () {
 
   return {
     init: init,
-    senderStart: senderStart,
-    receiverStart: receiverStart,
     getReceivedImages: function () { return _receivedImages.slice(); },
-    saveAllImages: function () { if (!_receivedImages.length) { UI.toast('没有可保存的图片', 'warning'); return; } PIX.ImageViewer.downloadAll(_receivedImages); }
+    saveAllImages: function () { if (!_receivedImages.length) { UI.toast('No images', 'warning'); return; } PIX.ImageViewer.downloadAll(_receivedImages); }
   };
 })();
