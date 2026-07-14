@@ -33,22 +33,12 @@ PIX.PeerManager = (function () {
   // ================================================================
   //  CODE INPUT HELPERS
   // ================================================================
-  function getDigitCode(prefix) {
-    var digits = '';
-    for (var i = 1; i <= 6; i++) {
-      var el = document.getElementById(prefix + i);
-      if (el) digits += el.value;
-    }
-    return digits;
+  function getSenderCode() {
+    return document.getElementById('scode').value.replace(/\D/g, '');
   }
-
-  function setDigitCode(prefix, code) {
-    for (var i = 1; i <= 6; i++) {
-      var el = document.getElementById(prefix + i);
-      if (el) el.value = code[i - 1] || '';
-    }
+  function getReceiverCode() {
+    return document.getElementById('rcode').value.replace(/\D/g, '');
   }
-
   function isValidCode(code) {
     return /^\d{6}$/.test(code);
   }
@@ -60,24 +50,20 @@ PIX.PeerManager = (function () {
     var files = PIX.FileHandler.getFiles();
     if (!files.length) { UI.toast('请先选择图片', 'warning'); return; }
 
-    _code = getDigitCode('sdigit');
-    if (!isValidCode(_code)) { UI.toast('请输入 6 位数字连接码', 'warning'); return; }
+    _code = getSenderCode();
+    if (!isValidCode(_code)) { UI.toast('请输入完整的 6 位数字', 'warning'); return; }
 
     _isSender = true;
     _pendingFiles = files;
     _transferComplete = false;
 
     UI.showSenderWaiting(_code);
+    UI.setConnStatus('connecting', '等待好友加入...');
 
-    // Connect to MQTT
     PIX.Relay.connect(_code).then(function () {
-      // Create WebRTC offer
       return _createOffer();
     }).then(function (offerSDP) {
-      // Publish offer via MQTT
       return PIX.Relay.publishOffer(offerSDP, _onAnswerReceived);
-    }).then(function () {
-      UI.setConnStatus('connecting', '等待好友输入 ' + _code + '...');
     }).catch(function (err) {
       console.error('Sender error:', err);
       UI.toast('连接失败: ' + err.message, 'error');
@@ -109,7 +95,12 @@ PIX.PeerManager = (function () {
   }
 
   function _onAnswerReceived(answerText) {
-    PIX.Relay.disconnect(); // No longer need MQTT
+    // Show joined confirmation
+    UI.showSenderJoined();
+    UI.setConnStatus('connecting', '好友已加入！建立 P2P...');
+
+    PIX.Relay.disconnect();
+
     try {
       var m = answerText.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
       if (m) answerText = m[0];
@@ -131,19 +122,18 @@ PIX.PeerManager = (function () {
   //  RECEIVER
   // ================================================================
   function receiverStart() {
-    _code = getDigitCode('rdigit');
-    if (!isValidCode(_code)) { UI.toast('请输入 6 位数字连接码', 'warning'); return; }
+    _code = getReceiverCode();
+    if (!isValidCode(_code)) { UI.toast('请输入完整的 6 位数字', 'warning'); return; }
 
     _isSender = false;
     _receivedImages = [];
     _transferComplete = false;
 
     UI.showReceiverWaiting(_code);
+    UI.setConnStatus('connecting', '等待发送方...');
 
     PIX.Relay.connect(_code).then(function () {
-      // Wait for offer from sender
       PIX.Relay.waitForOffer(_onOfferReceived);
-      UI.setConnStatus('connecting', '已加入 ' + _code + '，等待发送方...');
     }).catch(function (err) {
       console.error('Receiver error:', err);
       UI.toast('连接失败: ' + err.message, 'error');
@@ -159,7 +149,8 @@ PIX.PeerManager = (function () {
     var offer;
     try { offer = JSON.parse(offerText); } catch (e) { UI.toast('收到无效的 Offer', 'error'); return; }
 
-    UI.setConnStatus('connecting', '已收到连接码，正在回复...');
+    UI.showReceiverJoined();
+    UI.setConnStatus('connecting', '已连接！回复发送方...');
 
     // Create peer and answer
     _pc = new RTCPeerConnection(ICE_SERVERS);

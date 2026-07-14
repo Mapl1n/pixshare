@@ -20,10 +20,12 @@ PIX.UI = (function () {
     els.sendProgText = document.getElementById('send-progress-text');
     els.sendFileName = document.getElementById('send-file-name');
     els.senderWait   = document.getElementById('sender-waiting');
+    els.senderJoined = document.getElementById('sender-joined');
 
     // Receiver
     els.recvPanel    = document.getElementById('receiver-panel');
     els.recvWait     = document.getElementById('receiver-waiting');
+    els.recvJoined   = document.getElementById('receiver-joined');
     els.recvReceiving = document.getElementById('receiver-receiving');
     els.recvComplete = document.getElementById('receiver-complete');
     els.recvError    = document.getElementById('receiver-error');
@@ -40,60 +42,25 @@ PIX.UI = (function () {
     els.connStatus = document.getElementById('connection-status');
     els.toastContainer = document.getElementById('toast-container');
 
-    // Digit inputs: auto-focus next
-    _setupDigitInputs();
-  }
-
-  function _setupDigitInputs() {
-    ['sdigit', 'rdigit'].forEach(function(prefix) {
-      for (var i = 1; i <= 6; i++) {
-        var el = document.getElementById(prefix + i);
-        if (!el) continue;
-        el.addEventListener('input', function(e) {
-          var val = this.value.replace(/\D/g, '');
-          this.value = val.slice(0, 1);
-          if (val && i < 6) {
-            var next = document.getElementById(prefix + (i + 1));
-            if (next) next.focus();
-          }
-        });
-        el.addEventListener('keydown', function(e) {
-          if (e.key === 'Backspace' && !this.value && i > 1) {
-            var prev = document.getElementById(prefix + (i - 1));
-            if (prev) prev.focus();
-          }
-        });
-        el.addEventListener('paste', function(e) {
-          e.preventDefault();
-          var text = (e.clipboardData || window.clipboardData).getData('text');
-          var digits = text.replace(/\D/g, '').slice(0, 6);
-          for (var j = 0; j < digits.length; j++) {
-            var target = document.getElementById(prefix + (j + 1));
-            if (target) target.value = digits[j];
-          }
-        });
-      }
-    });
   }
 
   function resetAll() {
     els.senderPanel.classList.add('hidden');
     els.senderWait.classList.add('hidden');
+    els.senderJoined.classList.add('hidden');
     els.senderConnected.classList.add('hidden');
     els.transferProg.classList.add('hidden');
     els.recvPanel.classList.remove('hidden');
     els.recvWait.classList.add('hidden');
+    els.recvJoined.classList.add('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvComplete.classList.add('hidden');
     els.recvError.classList.add('hidden');
     setConnStatus('disconnected', '未连接');
-    // Clear digits
-    for (var i = 1; i <= 6; i++) {
-      var s = document.getElementById('sdigit' + i);
-      var r = document.getElementById('rdigit' + i);
-      if (s) s.value = '';
-      if (r) r.value = '';
-    }
+    // Clear code inputs
+    var sc = document.getElementById('scode'), rc = document.getElementById('rcode');
+    if (sc) sc.value = '';
+    if (rc) rc.value = '';
   }
 
   function setConnStatus(state, text) {
@@ -157,8 +124,14 @@ PIX.UI = (function () {
     els.senderWait.querySelector('.code-display').textContent = code;
   }
 
+  function showSenderJoined() {
+    els.senderWait.classList.add('hidden');
+    els.senderJoined.classList.remove('hidden');
+  }
+
   function showSenderConnected() {
     els.senderWait.classList.add('hidden');
+    els.senderJoined.classList.add('hidden');
     els.senderConnected.classList.remove('hidden');
     els.transferProg.classList.remove('hidden');
   }
@@ -174,7 +147,13 @@ PIX.UI = (function () {
   function showReceiverWaiting(code) {
     els.recvPanel.classList.add('hidden');
     els.recvWait.classList.remove('hidden');
+    els.recvJoined.classList.add('hidden');
     els.recvWait.querySelector('.code-display').textContent = code;
+  }
+
+  function showReceiverJoined() {
+    els.recvWait.classList.add('hidden');
+    els.recvJoined.classList.remove('hidden');
   }
 
   function showReceiverReceiving() {
@@ -241,9 +220,11 @@ PIX.UI = (function () {
   return {
     init: init, resetAll: resetAll, setConnStatus: setConnStatus,
     renderFileGrid: renderFileGrid,
-    showSenderWaiting: showSenderWaiting, showSenderConnected: showSenderConnected,
+    showSenderWaiting: showSenderWaiting, showSenderJoined: showSenderJoined,
+    showSenderConnected: showSenderConnected,
     showSendProgress: showSendProgress, updateSendProgress: updateSendProgress,
-    showReceiverWaiting: showReceiverWaiting, showReceiverReceiving: showReceiverReceiving,
+    showReceiverWaiting: showReceiverWaiting, showReceiverJoined: showReceiverJoined,
+    showReceiverReceiving: showReceiverReceiving,
     updateRecvProgress: updateRecvProgress, showReceiverComplete: showReceiverComplete,
     showReceiverError: showReceiverError, showLightbox: showLightbox, toast: toast
   };
