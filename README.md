@@ -4,18 +4,18 @@
 
 ## 使用方式
 
-### 在线使用
-打开 **[mapl1n.github.io/pixshare](https://mapl1n.github.io/pixshare/)** 即可使用。
+### 发送方
+1. 打开 https://mapl1n.github.io/pixshare/
+2. 选择图片（支持多选、拖拽）
+3. 点击「开始分享」→ 点击「**分享链接给好友**」→ 系统分享面板直接选微信发送
+4. 页面保持打开，等待好友连接
 
-### 发送图片
-1. 打开网页 → 选择图片（支持多选、拖拽）
-2. 点击「**开始分享**」→ 复制链接
-3. 把链接通过微信发给好友
+> 💡 手机端点击「分享链接」会直接弹出系统分享面板，无需退出浏览器。发完后切回浏览器，连接**自动恢复**。
 
-### 接收图片
-1. 好友点开你发的链接
-2. 自动建立 P2P 连接，开始接收图片
-3. 接收完成后可在线查看 → 逐张保存或一键全部下载
+### 接收方
+1. 点开发送方发来的链接
+2. 自动 P2P 连接，开始接收原图
+3. 在线查看大图 → 一键全部保存到相册
 
 ## 原理
 
@@ -36,18 +36,18 @@
 - 不经过任何第三方服务器
 - 好友收到的文件和你电脑上的**一模一样，字节级完全一致**
 
-## 支持的图片格式
+## 特性
 
-JPG · PNG · HEIC · HEIF · WebP · GIF · BMP · AVIF · TIFF · SVG
-
-## PWA 功能
-
-- 可添加到手机主屏幕，像 App 一样使用
-- 离线也可打开（首次访问后缓存界面）
+- 📱 **移动端友好** — Web Share API 一键分享，无需切换 App
+- 🔁 **断线自动恢复** — 切到微信回来自动重连，不用重新开始
+- 📷 **支持 10+ 格式** — JPG · PNG · HEIC · HEIF · WebP · GIF · BMP · AVIF · TIFF · SVG
+- 🔒 **隐私安全** — 图片数据全程点对点，不经过任何服务器
+- 🏠 **PWA 可安装** — 添加到手机主屏幕，像 App 一样使用
+- 📶 **离线可打开** — 首次访问后缓存界面
 
 ## 与 Image Zipper 的区别
 
-| | [Image Zipper](https://github.com/Mapl1n/image-zipper) | PixShare |
+| | Image Zipper | PixShare |
 |------|:--:|:--:|
 | 原理 | 图片打包成 ZIP 文件 | P2P 直传原始文件 |
 | 发送方式 | 微信「文件」发 ZIP | 链接点开即连 |
@@ -60,7 +60,7 @@ JPG · PNG · HEIC · HEIF · WebP · GIF · BMP · AVIF · TIFF · SVG
 
 - 纯 HTML + CSS + JavaScript，零框架，零构建步骤
 - [PeerJS](https://peerjs.com/) — WebRTC 封装库
-- GitHub Pages 托管，免费 HTTPS
+- [GitHub Pages](https://pages.github.com/) 托管，免费 HTTPS
 
 ## 本地运行
 
