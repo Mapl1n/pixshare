@@ -10,21 +10,30 @@ PIX.PeerManager = (function () {
   var _conn = null;
   var _isSender = false;
   var _sessionId = null;
-  var _receivedImages = []; // { name, blob, size }
+  var _pendingFiles = null;        // Saved for reconnect after background
+  var _receivedImages = [];
   var _totalRecvSize = 0;
   var _totalRecvExpected = 0;
+  var _transferComplete = false;
+  var _reconnectTimer = null;
 
-  var CHUNK_SIZE = 16 * 1024; // 16KB per data channel message
+  var CHUNK_SIZE = 16 * 1024;
 
   // ---- Init ----
   function init() {
     document.getElementById('btn-share').addEventListener('click', startSharing);
+
+    // Share button (uses Web Share API)
+    document.getElementById('btn-share-link').addEventListener('click', shareLink);
+
+    // Copy button (fallback)
     document.getElementById('btn-copy-link').addEventListener('click', function () {
       var inp = document.getElementById('share-link-input');
       inp.select(); inp.setSelectionRange(0, 99999);
       try { navigator.clipboard.writeText(inp.value); UI.toast('链接已复制！发送给好友', 'success'); }
       catch (e) { UI.toast('请手动复制链接', 'warning'); }
     });
+
     document.getElementById('btn-manual-signal').addEventListener('click', startManualSignal);
     document.getElementById('btn-copy-offer').addEventListener('click', function () {
       var ta = document.getElementById('manual-offer');
@@ -37,6 +46,93 @@ PIX.PeerManager = (function () {
       var peerId = _sessionId;
       if (peerId) joinSession(peerId);
     });
+
+    // Auto-reconnect when page becomes visible again
+    _setupVisibilityHandler();
+  }
+
+  // ---- Page visibility: auto-restore connection after switching apps ----
+  function _setupVisibilityHandler() {
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return; // Going to background — do nothing
+
+      // Coming back to foreground
+      console.log('PixShare: page visible again, sender=' + _isSender + ', peer=' + !!_peer + ', conn=' + !!_conn);
+      if (!_isSender) return; // Only sender needs to re-establish listener
+      if (_transferComplete) return; // Already done
+
+      // If peer is destroyed/disconnected, re-create it
+      if (_peer && !_peer.destroyed && (_peer.disconnected || !_conn)) {
+        console.log('PixShare: peer disconnected, re-creating...');
+        UI.setConnStatus('connecting', '重新连接中...');
+        _recreatePeer();
+        return;
+      }
+
+      // If peer was destroyed (e.g. idle timeout), recreate
+      if (!_peer || _peer.destroyed) {
+        console.log('PixShare: peer destroyed, re-creating...');
+        UI.setConnStatus('connecting', '重新连接中...');
+        _recreatePeer();
+        return;
+      }
+    });
+  }
+
+  function _recreatePeer() {
+    if (!_sessionId || !_pendingFiles) return;
+    // Destroy old peer if exists
+    try { if (_peer && !_peer.destroyed) _peer.destroy(); } catch (e) {}
+    _peer = null;
+
+    _peer = new Peer(_sessionId, { debug: 0 });
+
+    _peer.on('open', function () {
+      UI.setConnStatus('connected', '等待好友连接');
+      UI.showActiveShare(_sessionId);
+    });
+
+    _peer.on('connection', function (conn) {
+      _conn = conn;
+      _setupConnection(conn, _pendingFiles);
+    });
+
+    _peer.on('error', function (err) {
+      console.error('Peer error:', err);
+      UI.setConnStatus('disconnected', '连接失败');
+    });
+
+    _peer.on('disconnected', function () {
+      UI.setConnStatus('disconnected', '连接断开（切回本页面自动恢复）');
+    });
+  }
+
+  // ---- Share Link via Web Share API (no need to leave browser) ----
+  function shareLink() {
+    if (!_sessionId) { UI.toast('请先生成链接', 'warning'); return; }
+    var url = U.getShareUrl(_sessionId);
+    var text = '📸 用 PixShare 接收原图，画质无损！打开：' + url;
+    if (navigator.share) {
+      navigator.share({ title: 'PixShare 传图', text: text, url: url })
+        .then(function () { UI.toast('已分享！等待好友打开链接...', 'success'); })
+        .catch(function (err) {
+          if (err.name !== 'AbortError') {
+            // Fallback to copy
+            _fallbackCopy(url);
+          }
+        });
+    } else {
+      _fallbackCopy(url);
+    }
+  }
+
+  function _fallbackCopy(url) {
+    try {
+      navigator.clipboard.writeText(url);
+      UI.toast('链接已复制！请切换到微信粘贴发给好友', 'success');
+    } catch (e) {
+      UI.toast('请手动复制链接发给好友', 'warning');
+    }
   }
 
   // ---- Sender: Start Sharing ----
@@ -45,17 +141,20 @@ PIX.PeerManager = (function () {
     if (!files.length) { UI.toast('请先选择图片', 'warning'); return; }
 
     _isSender = true;
+    _pendingFiles = files;
+    _transferComplete = false;
     _sessionId = U.generateSessionId();
     UI.setConnStatus('connecting', '连接中...');
 
-    _peer = new Peer(_sessionId, {
-      debug: 0
-      // PeerJS uses 0.peerjs.com signaling server by default
-    });
+    _peer = new Peer(_sessionId, { debug: 0 });
 
     _peer.on('open', function () {
       UI.setConnStatus('connected', '等待好友连接');
       UI.showActiveShare(_sessionId);
+      // Auto-trigger share on mobile
+      if (U.isMobile() && navigator.share) {
+        setTimeout(function () { shareLink(); }, 500);
+      }
     });
 
     _peer.on('connection', function (conn) {
@@ -65,12 +164,12 @@ PIX.PeerManager = (function () {
 
     _peer.on('error', function (err) {
       console.error('Peer error:', err);
-      UI.setConnStatus('disconnected', '连接失败');
-      UI.toast('连接失败: ' + (err.message || err.type), 'error');
+      UI.setConnStatus('disconnected', '出错');
+      UI.toast('连接出错: ' + (err.message || err.type), 'error');
     });
 
     _peer.on('disconnected', function () {
-      UI.setConnStatus('disconnected', '已断开');
+      UI.setConnStatus('disconnected', '连接断开（切回本页面自动恢复）');
     });
   }
 
@@ -82,16 +181,19 @@ PIX.PeerManager = (function () {
     });
 
     conn.on('data', function (data) {
-      // Sender might receive ack or status from receiver
       if (data === 'received-all') {
+        _transferComplete = true;
         UI.updateSendProgress(100, '全部发送完成！');
+        UI.setConnStatus('connected', '发送完成');
         UI.toast('✅ 全部发送完成！', 'success');
         setTimeout(function () { UI.hideSendProgress(); }, 2000);
       }
     });
 
     conn.on('close', function () {
-      UI.setConnStatus('disconnected', '连接已关闭');
+      if (!_transferComplete) {
+        UI.setConnStatus('disconnected', '连接关闭（切回本页面自动恢复）');
+      }
     });
 
     conn.on('error', function (err) {
@@ -106,7 +208,6 @@ PIX.PeerManager = (function () {
     for (var i = 0; i < files.length; i++) totalSize += files[i].size;
     var sentBytes = 0;
 
-    // Send metadata first
     conn.send(JSON.stringify({
       type: 'metadata',
       files: files.map(function (f) { return { name: f.displayName, size: f.size, mime: f.type }; }),
@@ -114,25 +215,23 @@ PIX.PeerManager = (function () {
       count: files.length
     }));
 
-    // Send files one by one
     var currentIdx = 0;
     function sendNext() {
       if (currentIdx >= files.length) {
         conn.send(JSON.stringify({ type: 'complete' }));
+        _transferComplete = true;
         UI.updateSendProgress(100, '全部发送完成！');
+        UI.setConnStatus('connected', '发送完成');
         UI.toast('✅ ' + files.length + ' 张图片发送完成！', 'success');
         return;
       }
       var f = files[currentIdx];
       UI.updateSendProgress(0, f.displayName);
 
-      // Read file as ArrayBuffer
       f.file.arrayBuffer().then(function (buffer) {
         var size = buffer.byteLength;
-        // Send file-start
         conn.send(JSON.stringify({ type: 'file-start', name: f.displayName, size: size, index: currentIdx }));
 
-        // Send chunks
         var offset = 0;
         function sendChunk() {
           if (offset >= size) {
@@ -141,15 +240,12 @@ PIX.PeerManager = (function () {
             var pct = Math.round(sentBytes / totalSize * 100);
             UI.updateSendProgress(pct);
             currentIdx++;
-            // Small delay to avoid flooding the data channel
             setTimeout(sendNext, 50);
             return;
           }
           var end = Math.min(offset + CHUNK_SIZE, size);
-          var chunk = buffer.slice(offset, end);
-          conn.send(chunk);
+          conn.send(buffer.slice(offset, end));
           offset = end;
-          // Respect backpressure
           if (conn.bufferSize > CHUNK_SIZE * 4) {
             setTimeout(sendChunk, 100);
           } else {
@@ -159,7 +255,7 @@ PIX.PeerManager = (function () {
         sendChunk();
       }).catch(function (err) {
         console.error('Read error:', err);
-        conn.send(JSON.stringify({ type: 'error', message: 'Failed to read file: ' + f.displayName }));
+        conn.send(JSON.stringify({ type: 'error', message: '无法读取: ' + f.displayName }));
       });
     }
     sendNext();
@@ -189,7 +285,7 @@ PIX.PeerManager = (function () {
       console.error('Receiver peer error:', err);
       UI.setConnStatus('disconnected', '连接失败');
       if (err.type === 'peer-unavailable') {
-        UI.showReceiverError('发送方不在线（可能已关闭页面）。请确认发送方还在等待，然后重试。');
+        UI.showReceiverError('发送方暂不在线。可能对方切到了微信，请对方切回浏览器即可自动恢复。');
       } else {
         UI.showReceiverError('连接失败: ' + (err.message || err.type));
       }
@@ -200,14 +296,12 @@ PIX.PeerManager = (function () {
     var currentFile = null, chunks = [], receivedSize = 0;
     var fileCount = 0, expectedCount = 0;
     var totalReceived = 0, totalExpected = 0;
-    var buffer = new Uint8Array(0);
 
     conn.on('open', function () {
       UI.setConnStatus('connected', '已连接，等待接收...');
     });
 
     conn.on('data', function (data) {
-      // Binary data = file chunk
       if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
         var arr = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
         chunks.push(arr);
@@ -217,14 +311,12 @@ PIX.PeerManager = (function () {
           var pct = Math.round(receivedSize / currentFile.size * 100);
           UI.updateRecvProgress(pct, currentFile.name);
           if (totalExpected > 0) {
-            var overall = Math.round(totalReceived / totalExpected * 100);
-            UI.setConnStatus('connected', '接收中 ' + overall + '%');
+            UI.setConnStatus('connected', '接收中 ' + Math.round(totalReceived / totalExpected * 100) + '%');
           }
         }
         return;
       }
 
-      // String data = JSON message
       if (typeof data === 'string') {
         try { var msg = JSON.parse(data); } catch (e) { return; }
 
@@ -234,7 +326,7 @@ PIX.PeerManager = (function () {
             totalExpected = msg.totalSize;
             expectedCount = msg.count;
             UI.showReceiverReceiving();
-            UI.updateRecvProgress(0, '准备接收 ' + msg.count + ' 张图片...');
+            UI.updateRecvProgress(0, '准备接收 ' + msg.count + ' 张...');
             break;
 
           case 'file-start':
@@ -246,7 +338,6 @@ PIX.PeerManager = (function () {
 
           case 'file-end':
             if (currentFile && chunks.length > 0) {
-              // Combine chunks
               var blob = new Blob(chunks, { type: currentFile.mime || 'application/octet-stream' });
               _receivedImages.push({ name: currentFile.name, blob: blob, size: blob.size });
               fileCount++;
@@ -261,7 +352,7 @@ PIX.PeerManager = (function () {
             UI.setConnStatus('connected', '接收完成');
             UI.showReceiverComplete(_receivedImages);
             UI.toast('✅ 收到 ' + _receivedImages.length + ' 张原图！', 'success');
-            conn.send('received-all');
+            try { conn.send('received-all'); } catch (e) {}
             break;
 
           case 'error':
@@ -272,9 +363,9 @@ PIX.PeerManager = (function () {
     });
 
     conn.on('close', function () {
-      UI.setConnStatus('disconnected', '连接已关闭');
+      UI.setConnStatus('disconnected', '连接关闭');
       if (_receivedImages.length > 0 && !document.getElementById('receiver-complete').classList.contains('hidden')) {
-        // Already completed, do nothing
+        // Already completed
       } else if (_receivedImages.length > 0) {
         UI.showReceiverComplete(_receivedImages);
         UI.toast('连接已关闭，但已接收 ' + _receivedImages.length + ' 张图片', 'warning');
@@ -292,8 +383,7 @@ PIX.PeerManager = (function () {
     var files = PIX.FileHandler.getFiles();
     if (!files.length) return;
     _isSender = true;
-
-    // Create a peer with manual connection
+    _pendingFiles = files;
     _sessionId = U.generateSessionId();
     _peer = new Peer(_sessionId, { debug: 0 });
 
@@ -306,16 +396,15 @@ PIX.PeerManager = (function () {
       _setupConnection(conn, files);
     });
 
-    UI.showManualSignal('等待好友连接... 如果自动连接失败，请使用上面的链接。');
+    UI.showManualSignal('等待好友连接... 自动连接失败请用上面的链接。');
   }
 
   function submitManualAnswer() {
     var answerText = UI.getAnswerText();
     if (!answerText) { UI.toast('请粘贴好友的 Answer', 'warning'); return; }
-    UI.toast('Manual answer submitted (not fully implemented, use auto mode)');
+    UI.toast('请优先使用自动连接模式', 'warning');
   }
 
-  // ---- Save All (Receiver) ----
   function saveAllImages() {
     if (!_receivedImages.length) { UI.toast('没有可保存的图片', 'warning'); return; }
     PIX.ImageViewer.downloadAll(_receivedImages);

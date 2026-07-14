@@ -155,6 +155,9 @@ body {
   background: var(--color-surface); color: var(--color-text);
 }
 .share-hint { font-size: 0.75rem; color: var(--color-text-muted); margin-top: 8px; }
+.share-actions { display: flex; flex-direction: column; gap: 10px; }
+.share-or { text-align: center; font-size: 0.78rem; color: var(--color-text-muted); }
+.share-link-box .btn-large { width: 100%; justify-content: center; }
 .share-link-box .btn-small { flex-shrink: 0; }
 
 /* Manual signaling */

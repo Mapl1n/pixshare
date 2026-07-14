@@ -43,6 +43,11 @@ PIX.Utils = (function () {
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
+  function isMobile() {
+    return /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 1 && window.innerWidth < 768);
+  }
+
   function getShareUrl(peerId) {
     return window.location.origin + window.location.pathname + '#' + peerId;
   }
@@ -54,6 +59,7 @@ PIX.Utils = (function () {
     generatePeerId: generatePeerId,
     generateSessionId: generateSessionId,
     isIOS: isIOS,
+    isMobile: isMobile,
     getShareUrl: getShareUrl
   };
 })();

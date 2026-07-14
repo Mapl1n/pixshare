@@ -61,12 +61,18 @@
           <!-- Active share session -->
           <div id="active-share" class="active-share hidden">
             <div class="share-link-box">
-              <p class="share-label">📤 分享链接（发给好友）：</p>
-              <div class="link-row">
-                <input type="text" id="share-link-input" readonly class="link-input" value="">
-                <button id="btn-copy-link" class="btn btn-primary btn-small">复制</button>
+              <p class="share-label">📤 将链接发给好友：</p>
+              <div class="share-actions">
+                <button id="btn-share-link" class="btn btn-primary btn-large">
+                  📤 分享链接给好友
+                </button>
+                <p class="share-or">或</p>
+                <div class="link-row">
+                  <input type="text" id="share-link-input" readonly class="link-input" value="">
+                  <button id="btn-copy-link" class="btn btn-outline btn-small">复制</button>
+                </div>
               </div>
-              <p class="share-hint">好友打开链接后自动连接，图片 P2P 直传</p>
+              <p class="share-hint">好友打开链接后自动连接，图片 P2P 直传<br>⚠️ 分享后请勿关闭页面，等待好友连接</p>
             </div>
             <div class="manual-signal-box">
               <p class="share-label">🔧 自动连接失败？试试手动连接：</p>
