@@ -1,391 +1,308 @@
 /**
- * peer-manager.js — WebRTC P2P via PeerJS with robust reconnect
+ * peer-manager.js — Pure WebRTC with manual SDP exchange
+ * No signaling server. No PeerJS. No disconnects.
+ *
+ * Flow:
+ *   Sender:   select files → createOffer → copy SDP → send via WeChat
+ *   Receiver: paste SDP → createAnswer → copy SDP → send back via WeChat
+ *   Sender:   paste Answer → P2P connection established → transfer files
  */
 PIX.PeerManager = (function () {
   'use strict';
   var U = PIX.Utils, UI = PIX.UI;
 
-  var _peer = null, _conn = null;
+  var _pc = null;           // RTCPeerConnection
+  var _dc = null;           // DataChannel (sender side)
   var _isSender = false;
-  var _sessionId = null;
   var _pendingFiles = null;
   var _receivedImages = [];
   var _transferComplete = false;
-  var _cleanup = false;
 
-  // Retry timers
-  var _senderReconTimer = null;
-  var _recvRetryTimer = null;
-  var _recvRetryCount = 0;
-  var MAX_RETRIES = 120; // ~4 min at 2s intervals
+  // STUN servers (Google free public — only used to discover public IP, no data passes through)
+  var ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   var CHUNK_SIZE = 16 * 1024;
 
   // ---- Init ----
   function init() {
-    document.getElementById('btn-share').addEventListener('click', startSharing);
-    document.getElementById('btn-share-link').addEventListener('click', shareLink);
-    document.getElementById('btn-copy-link').addEventListener('click', copyLink);
-    document.getElementById('btn-manual-signal').addEventListener('click', startManualSignal);
-    document.getElementById('btn-copy-offer').addEventListener('click', function () {
-      var ta = document.getElementById('manual-offer');
-      ta.select();
-      try { navigator.clipboard.writeText(ta.value); UI.toast('Offer 已复制', 'success'); }
-      catch (e) { UI.toast('请手动复制', 'warning'); }
-    });
-    document.getElementById('btn-submit-answer').addEventListener('click', submitManualAnswer);
+    // Sender buttons
+    document.getElementById('btn-share').addEventListener('click', senderStart);
+    document.getElementById('btn-copy-offer').addEventListener('click', copyOffer);
+    document.getElementById('btn-paste-answer').addEventListener('click', senderPasteAnswer);
+
+    // Receiver buttons
+    document.getElementById('btn-recv-start').addEventListener('click', receiverStart);
+    document.getElementById('btn-copy-answer').addEventListener('click', copyAnswer);
+
+    // Retry
     document.getElementById('btn-retry').addEventListener('click', function () {
-      if (_sessionId) joinSession(_sessionId);
+      UI.resetAll();
     });
 
-    _setupVisibility();
-    _setupUnload();
-  }
-
-  // ---- Visibility: sender re-registers on return ----
-  function _setupVisibility() {
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden) return;
-      if (_transferComplete) return;
-      if (!_sessionId) return;
-
-      console.log('visible: sender=' + _isSender + ' peerAlive=' + (_peer && !_peer.destroyed));
-
-      if (_isSender) {
-        _senderReconnect();
-      } else {
-        // Receiver: if not connected, restart retry loop
-        if (_recvRetryTimer && _receivedImages.length === 0) {
-          _recvRetry();
-        }
-      }
+    // Add files
+    document.getElementById('btn-add').addEventListener('click', function () {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('btn-clear').addEventListener('click', function () {
+      PIX.FileHandler.clearAll();
     });
   }
 
-  function _setupUnload() {
-    window.addEventListener('pagehide', function () { _cleanup = true; });
-    window.addEventListener('beforeunload', function () { _cleanup = true; });
-  }
+  // ================================================================
+  //  SENDER SIDE
+  // ================================================================
 
-  // ---- Robust sender reconnect ----
-  function _senderReconnect() {
-    if (!_sessionId || !_pendingFiles) return;
-    clearTimeout(_senderReconTimer);
-
-    function tryRecreate(attempt) {
-      if (_cleanup) return;
-      UI.setConnStatus('connecting', '重新上线中...');
-
-      // Kill old peer
-      _killPeer();
-
-      _peer = new Peer(_sessionId, { debug: 0 });
-
-      _peer.on('open', function () {
-        clearTimeout(_senderReconTimer);
-        console.log('Sender peer open:', _sessionId);
-        UI.setConnStatus('connected', '等待好友连接');
-        UI.showActiveShare(_sessionId);
-      });
-
-      _peer.on('connection', function (conn) {
-        _conn = conn;
-        _setupConnection(conn, _pendingFiles);
-      });
-
-      _peer.on('error', function (err) {
-        console.warn('Sender error:', err.type, 'attempt', attempt);
-        if (err.type === 'unavailable-id') {
-          // Old ghost still registered — wait longer and retry
-          _killPeer();
-          if (attempt < 10) {
-            UI.setConnStatus('connecting', '等待旧连接释放...(' + (attempt + 1) + '/10)');
-            _senderReconTimer = setTimeout(function () { tryRecreate(attempt + 1); }, 3000);
-          } else {
-            // Give up on old ID, generate new one
-            _sessionId = U.generateSessionId();
-            _saveSession();
-            UI.toast('会话已刷新，请重新分享链接给好友', 'warning');
-            tryRecreate(0);
-          }
-          return;
-        }
-        // Other errors: retry
-        if (attempt < 5) {
-          _senderReconTimer = setTimeout(function () { tryRecreate(attempt + 1); }, 2000);
-        } else {
-          UI.setConnStatus('disconnected', '连接失败');
-          UI.toast('连接失败，请刷新页面重试', 'error');
-        }
-      });
-
-      _peer.on('disconnected', function () {
-        if (!_transferComplete && !_cleanup) {
-          UI.setConnStatus('disconnected', '断开（切回自动恢复）');
-          _senderReconTimer = setTimeout(function () { tryRecreate(0); }, 2000);
-        }
-      });
-    }
-
-    tryRecreate(0);
-  }
-
-  function _killPeer() {
-    try { if (_conn) { _conn.close(); } } catch (e) {}
-    _conn = null;
-    try { if (_peer && !_peer.destroyed) _peer.destroy(); } catch (e) {}
-    _peer = null;
-  }
-
-  // ---- Share link persistence ----
-  function _saveSession() {
-    try {
-      sessionStorage.setItem('pixshare_id', _sessionId);
-      sessionStorage.setItem('pixshare_sender', _isSender ? '1' : '0');
-    } catch (e) {}
-  }
-
-  function _loadSession() {
-    try {
-      var id = sessionStorage.getItem('pixshare_id');
-      var sender = sessionStorage.getItem('pixshare_sender');
-      return id ? { id: id, isSender: sender === '1' } : null;
-    } catch (e) { return null; }
-  }
-
-  // ---- Share Link ----
-  function shareLink() {
-    if (!_sessionId) { UI.toast('请先生成链接', 'warning'); return; }
-    var url = U.getShareUrl(_sessionId);
-    var text = '📸 接收原图（画质无损）：' + url;
-    if (navigator.share) {
-      navigator.share({ title: 'PixShare 传图', text: text, url: url })
-        .then(function () {
-          UI.toast('已分享！等待好友打开链接...', 'success');
-        })
-        .catch(function (err) {
-          if (err.name !== 'AbortError') copyLink();
-        });
-    } else {
-      copyLink();
-    }
-  }
-
-  function copyLink() {
-    var inp = document.getElementById('share-link-input');
-    try {
-      inp.select(); inp.setSelectionRange(0, 99999);
-      navigator.clipboard.writeText(inp.value);
-      UI.toast('链接已复制！发到微信给好友 📋', 'success');
-    } catch (e) {
-      UI.toast('请手动长按复制链接发给好友', 'warning');
-    }
-  }
-
-  // ---- Sender: Start Sharing ----
-  function startSharing() {
+  function senderStart() {
     var files = PIX.FileHandler.getFiles();
     if (!files.length) { UI.toast('请先选择图片', 'warning'); return; }
 
     _isSender = true;
     _pendingFiles = files;
     _transferComplete = false;
-    _cleanup = false;
-    clearTimeout(_senderReconTimer);
 
-    // Check for existing session (from page hide/show)
-    var existing = _loadSession();
-    if (existing && existing.isSender) {
-      _sessionId = existing.id;
-    } else {
-      _sessionId = U.generateSessionId();
+    UI.showSenderStep1();
+
+    _pc = new RTCPeerConnection(ICE_SERVERS);
+
+    // Create data channel (sender initiates)
+    _dc = _pc.createDataChannel('pixshare', { ordered: true });
+    _setupDataChannel(_dc, files);
+
+    // Collect ICE candidates
+    var iceCandidates = [];
+    _pc.onicecandidate = function (e) {
+      if (e.candidate) {
+        iceCandidates.push(e.candidate);
+      }
+    };
+
+    _pc.createOffer().then(function (offer) {
+      return _pc.setLocalDescription(offer);
+    }).then(function () {
+      // Wait for ICE gathering to complete
+      _waitForIce(_pc).then(function () {
+        var sdp = JSON.stringify({
+          sdp: _pc.localDescription.sdp,
+          type: _pc.localDescription.type
+        });
+        UI.showOfferText(sdp);
+        UI.toast('✅ 请复制 Offer 发给好友', 'success');
+      });
+    }).catch(function (err) {
+      console.error('Create offer failed:', err);
+      UI.toast('创建连接失败: ' + err.message, 'error');
+    });
+
+    // Monitor connection
+    _pc.oniceconnectionstatechange = function () {
+      console.log('ICE state:', _pc.iceConnectionState);
+      if (_pc.iceConnectionState === 'connected' || _pc.iceConnectionState === 'completed') {
+        UI.setConnStatus('connected', '已连接 ✅');
+      } else if (_pc.iceConnectionState === 'disconnected') {
+        UI.setConnStatus('disconnected', '连接断开');
+      } else if (_pc.iceConnectionState === 'failed') {
+        UI.setConnStatus('disconnected', '连接失败');
+      }
+    };
+  }
+
+  function senderPasteAnswer() {
+    var text = document.getElementById('sender-answer-input').value.trim();
+    if (!text) { UI.toast('请先粘贴好友发回的 Answer', 'warning'); return; }
+
+    var answer;
+    try { answer = JSON.parse(text); } catch (e) {
+      UI.toast('Answer 格式不对，请确认完整复制', 'error');
+      return;
     }
-    _saveSession();
 
-    UI.setConnStatus('connecting', '连接中...');
+    if (!_pc) {
+      UI.toast('请先点"开始分享"', 'warning');
+      return;
+    }
 
-    _peer = new Peer(_sessionId, { debug: 0 });
-
-    _peer.on('open', function () {
-      console.log('Sender open:', _sessionId);
-      UI.setConnStatus('connected', '等待好友连接');
-      UI.showActiveShare(_sessionId);
-      // Auto-share on mobile
-      if (U.isMobile() && navigator.share) {
-        setTimeout(function () { shareLink(); }, 600);
-      }
-    });
-
-    _peer.on('connection', function (conn) {
-      console.log('Sender got connection');
-      _conn = conn;
-      _setupConnection(conn, files);
-    });
-
-    _peer.on('error', function (err) {
-      console.error('Sender error:', err.type);
-      if (err.type === 'unavailable-id') {
-        // Retry with new ID
-        _sessionId = U.generateSessionId();
-        _saveSession();
-        _killPeer();
-        UI.toast('会话 ID 冲突，已自动刷新', 'warning');
-        startSharing();
-        return;
-      }
-      UI.setConnStatus('disconnected', '出错');
-      UI.toast('连接出错: ' + err.type, 'error');
-    });
-
-    _peer.on('disconnected', function () {
-      if (!_transferComplete && !_cleanup) {
-        UI.setConnStatus('disconnected', '断开（切回自动恢复）');
-      }
+    _pc.setRemoteDescription(new RTCSessionDescription(answer)).then(function () {
+      UI.showSenderConnected();
+      UI.setConnStatus('connected', 'P2P 连接建立，等待传输...');
+      UI.toast('✅ 连接成功！等待好友连接...', 'success');
+    }).catch(function (err) {
+      console.error('Set remote failed:', err);
+      UI.toast('连接失败: ' + err.message + '，请确认文本完整', 'error');
     });
   }
 
-  function _setupConnection(conn, files) {
-    conn.on('open', function () {
-      console.log('Connection open, sending...');
+  function copyOffer() {
+    var ta = document.getElementById('sender-offer-text');
+    ta.select(); ta.setSelectionRange(0, 99999);
+    try {
+      navigator.clipboard.writeText(ta.value);
+      UI.toast('Offer 已复制！去微信发给好友 📋', 'success');
+    } catch (e) {
+      UI.toast('请手动全选复制上方文本', 'warning');
+    }
+  }
+
+  function _setupDataChannel(dc, files) {
+    dc.onopen = function () {
+      console.log('DataChannel open, sending files...');
       UI.setConnStatus('connected', '正在发送...');
       UI.showSendProgress();
-      _sendFiles(conn, files);
-    });
+      _sendFiles(dc, files);
+    };
 
-    conn.on('data', function (data) {
-      if (data === 'received-all') {
-        _transferComplete = true;
-        UI.updateSendProgress(100, '全部发送完成！');
-        UI.setConnStatus('connected', '发送完成 ✅');
-        UI.toast('✅ 全部发送完成！', 'success');
+    dc.onclose = function () {
+      if (!_transferComplete) {
+        UI.setConnStatus('disconnected', '连接关闭');
       }
-    });
-
-    conn.on('close', function () {
-      if (!_transferComplete && !_cleanup) {
-        UI.setConnStatus('disconnected', '连接断开（对方重新进入即可恢复）');
-      }
-    });
-
-    conn.on('error', function () {
-      if (!_cleanup) UI.toast('传输出错，重试中...', 'warning');
-    });
+    };
   }
 
-  // ---- File Sending ----
-  function _sendFiles(conn, files) {
+  function _sendFiles(dc, files) {
     var totalSize = 0, sentBytes = 0;
     for (var i = 0; i < files.length; i++) totalSize += files[i].size;
 
-    conn.send(JSON.stringify({
+    dc.send(JSON.stringify({
       type: 'metadata',
       files: files.map(function (f) { return { name: f.displayName, size: f.size, mime: f.type }; }),
       totalSize: totalSize, count: files.length
     }));
 
     var idx = 0;
+    var buffer = null;
+    var bufSize = 0;
+    var bufOffset = 0;
+
     function sendNext() {
       if (idx >= files.length) {
-        conn.send(JSON.stringify({ type: 'complete' }));
+        if (dc.readyState === 'open') {
+          dc.send(JSON.stringify({ type: 'complete' }));
+        }
         _transferComplete = true;
         UI.updateSendProgress(100, '全部发送完成！');
         UI.setConnStatus('connected', '发送完成 ✅');
+        UI.toast('✅ 全部发送完成！', 'success');
         return;
       }
       var f = files[idx];
       UI.updateSendProgress(0, f.displayName);
       f.file.arrayBuffer().then(function (buf) {
-        var size = buf.byteLength;
-        conn.send(JSON.stringify({ type: 'file-start', name: f.displayName, size: size, index: idx }));
-        var off = 0;
-        function chunk() {
-          if (off >= size) {
-            conn.send(JSON.stringify({ type: 'file-end', index: idx }));
-            sentBytes += size;
-            UI.updateSendProgress(Math.round(sentBytes / totalSize * 100));
-            idx++; setTimeout(sendNext, 30);
-            return;
-          }
-          conn.send(buf.slice(off, Math.min(off + CHUNK_SIZE, size)));
-          off += CHUNK_SIZE;
-          if (conn.bufferSize > CHUNK_SIZE * 4) setTimeout(chunk, 80);
-          else chunk();
-        }
-        chunk();
+        buffer = new Uint8Array(buf);
+        bufSize = buffer.byteLength;
+        bufOffset = 0;
+        dc.send(JSON.stringify({ type: 'file-start', name: f.displayName, size: bufSize, index: idx }));
+        sendChunk();
       }).catch(function (e) {
-        conn.send(JSON.stringify({ type: 'error', message: '读取失败: ' + f.displayName }));
+        console.error('Read error:', e);
+        dc.send(JSON.stringify({ type: 'error', message: '读取失败: ' + f.displayName }));
       });
     }
+
+    function sendChunk() {
+      if (bufOffset >= bufSize) {
+        dc.send(JSON.stringify({ type: 'file-end', index: idx }));
+        sentBytes += bufSize;
+        UI.updateSendProgress(Math.round(sentBytes / totalSize * 100));
+        idx++;
+        setTimeout(sendNext, 30);
+        return;
+      }
+      var end = Math.min(bufOffset + CHUNK_SIZE, bufSize);
+      dc.send(buffer.slice(bufOffset, end).buffer);
+      bufOffset = end;
+      // Check buffer
+      if (dc.bufferedAmount > CHUNK_SIZE * 8) {
+        setTimeout(sendChunk, 100);
+      } else {
+        sendChunk();
+      }
+    }
+
     sendNext();
   }
 
-  // ---- Receiver: Join Session ----
-  function joinSession(peerId) {
-    _isSender = false;
-    _sessionId = peerId;
-    _receivedImages = [];
-    _transferComplete = false;
-    _cleanup = false;
-    _recvRetryCount = 0;
-    clearTimeout(_recvRetryTimer);
-    _killPeer();
+  // ================================================================
+  //  RECEIVER SIDE
+  // ================================================================
 
-    UI.showReceiverConnecting(peerId);
-    UI.setConnStatus('connecting', '连接中...');
-    _recvRetry();
-  }
+  function receiverStart() {
+    var offerText = document.getElementById('recv-offer-input').value.trim();
+    if (!offerText) { UI.toast('请先粘贴发送方的 Offer', 'warning'); return; }
 
-  function _recvRetry() {
-    if (_cleanup || _transferComplete) return;
-    if (_recvRetryCount >= MAX_RETRIES) {
-      UI.showReceiverError('连接超时。请确认发送方已打开页面，然后点重试。');
-      UI.setConnStatus('disconnected', '连接超时');
+    var offer;
+    try { offer = JSON.parse(offerText); } catch (e) {
+      UI.toast('Offer 格式不对，请确认完整粘贴', 'error');
       return;
     }
 
-    _recvRetryCount++;
-    _killPeer();
+    _isSender = false;
+    _receivedImages = [];
+    _transferComplete = false;
 
-    _peer = new Peer({ debug: 0 });
+    UI.showReceiverStep2();
 
-    _peer.on('open', function () {
-      var conn = _peer.connect(_sessionId, { reliable: true });
-      _conn = conn;
-      _setupReceiver(conn);
+    _pc = new RTCPeerConnection(ICE_SERVERS);
+
+    // Receiver listens for data channel
+    _pc.ondatachannel = function (event) {
+      _dc = event.channel;
+      _setupReceiverChannel(_dc);
+    };
+
+    // Collect ICE
+    _pc.onicecandidate = function (e) { /* collected in SDP */ };
+
+    _pc.setRemoteDescription(new RTCSessionDescription(offer)).then(function () {
+      return _pc.createAnswer();
+    }).then(function (answer) {
+      return _pc.setLocalDescription(answer);
+    }).then(function () {
+      return _waitForIce(_pc);
+    }).then(function () {
+      var sdp = JSON.stringify({
+        sdp: _pc.localDescription.sdp,
+        type: _pc.localDescription.type
+      });
+      UI.showAnswerText(sdp);
+      UI.toast('✅ 请复制 Answer 发回给发送方', 'success');
+    }).catch(function (err) {
+      console.error('Receiver setup failed:', err);
+      UI.toast('连接失败: ' + err.message, 'error');
     });
 
-    _peer.on('error', function (err) {
-      console.warn('Recv error:', err.type, 'try', _recvRetryCount);
-      _killPeer();
-      if (err.type === 'peer-unavailable') {
-        UI.setConnStatus('connecting', '等待发送方上线 (' + _recvRetryCount + ')');
-      } else {
-        UI.setConnStatus('connecting', '重试中 (' + _recvRetryCount + ')');
+    _pc.oniceconnectionstatechange = function () {
+      console.log('Recv ICE:', _pc.iceConnectionState);
+      if (_pc.iceConnectionState === 'connected' || _pc.iceConnectionState === 'completed') {
+        UI.setConnStatus('connected', 'P2P 已连接！等待接收...');
       }
-      _recvRetryTimer = setTimeout(_recvRetry, 2000);
-    });
-
-    _peer.on('disconnected', function () {
-      if (!_transferComplete && !_cleanup && _receivedImages.length === 0) {
-        _recvRetryTimer = setTimeout(_recvRetry, 1500);
-      }
-    });
+    };
   }
 
-  function _setupReceiver(conn) {
+  function copyAnswer() {
+    var ta = document.getElementById('recv-answer-text');
+    ta.select(); ta.setSelectionRange(0, 99999);
+    try {
+      navigator.clipboard.writeText(ta.value);
+      UI.toast('Answer 已复制！去微信发回给发送方 📋', 'success');
+    } catch (e) {
+      UI.toast('请手动全选复制上方文本', 'warning');
+    }
+  }
+
+  function _setupReceiverChannel(dc) {
     var cur = null, chunks = [], recvSize = 0;
     var fc = 0, ec = 0, totalRcvd = 0, totalExp = 0;
 
-    conn.on('open', function () {
-      console.log('Receiver connected!');
-      clearTimeout(_recvRetryTimer);
-      _recvRetryCount = 0;
-      UI.setConnStatus('connected', '已连接，等待接收...');
-    });
+    dc.onopen = function () {
+      UI.setConnStatus('connected', '已连接，等待接收文件...');
+    };
 
-    conn.on('data', function (data) {
-      if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
-        var a = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-        chunks.push(a); recvSize += a.byteLength; totalRcvd += a.byteLength;
+    dc.onmessage = function (event) {
+      var data = event.data;
+
+      if (data instanceof ArrayBuffer) {
+        var arr = new Uint8Array(data);
+        chunks.push(arr);
+        recvSize += arr.byteLength;
+        totalRcvd += arr.byteLength;
         if (cur && cur.size > 0) {
           UI.updateRecvProgress(Math.round(recvSize / cur.size * 100), cur.name);
         }
@@ -394,14 +311,16 @@ PIX.PeerManager = (function () {
         }
         return;
       }
+
       if (typeof data !== 'string') return;
       var msg;
       try { msg = JSON.parse(data); } catch (e) { return; }
+
       switch (msg.type) {
         case 'metadata':
           totalExp = msg.totalSize; ec = msg.count;
           UI.showReceiverReceiving();
-          UI.updateRecvProgress(0, '准备接收 ' + msg.count + ' 张...');
+          UI.updateRecvProgress(0, '准备接收 ' + msg.count + ' 张图片...');
           break;
         case 'file-start':
           cur = msg; chunks = []; recvSize = 0;
@@ -421,52 +340,50 @@ PIX.PeerManager = (function () {
           break;
         case 'complete':
           _transferComplete = true;
-          clearTimeout(_recvRetryTimer);
           UI.setConnStatus('connected', '接收完成 ✅');
           UI.showReceiverComplete(_receivedImages);
-          try { conn.send('received-all'); } catch (e) {}
+          UI.toast('✅ 收到 ' + _receivedImages.length + ' 张原图！', 'success');
+          break;
+        case 'error':
+          UI.toast('发送方出错: ' + msg.message, 'error');
           break;
       }
-    });
+    };
 
-    conn.on('close', function () {
+    dc.onclose = function () {
       if (!_transferComplete && _receivedImages.length > 0) {
         UI.showReceiverComplete(_receivedImages);
         UI.toast('连接关闭，已接收 ' + _receivedImages.length + ' 张', 'warning');
-      } else if (!_transferComplete && _receivedImages.length === 0 && !_cleanup) {
-        UI.setConnStatus('connecting', '重连中...');
-        _recvRetryTimer = setTimeout(_recvRetry, 2000);
       }
-    });
-
-    conn.on('error', function () {
-      if (_receivedImages.length === 0 && !_cleanup) {
-        _recvRetryTimer = setTimeout(_recvRetry, 2000);
-      }
-    });
+    };
   }
 
-  // ---- Manual ----
-  function startManualSignal() {
-    var files = PIX.FileHandler.getFiles();
-    if (!files.length) return;
-    _isSender = true; _pendingFiles = files; _cleanup = false;
-    _sessionId = U.generateSessionId(); _saveSession();
-    _peer = new Peer(_sessionId, { debug: 0 });
-    _peer.on('open', function () { UI.showActiveShare(_sessionId); });
-    _peer.on('connection', function (conn) { _conn = conn; _setupConnection(conn, files); });
-  }
+  // ================================================================
+  //  HELPERS
+  // ================================================================
 
-  function submitManualAnswer() {
-    if (!UI.getAnswerText()) { UI.toast('请粘贴好友的 Answer', 'warning'); return; }
-    UI.toast('请优先使用上面的自动连接链接', 'warning');
+  function _waitForIce(pc) {
+    return new Promise(function (resolve) {
+      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+
+      var timeout = setTimeout(function () {
+        console.log('ICE gathering timeout, using collected candidates');
+        resolve();
+      }, 4000);
+
+      pc.onicegatheringstatechange = function () {
+        if (pc.iceGatheringState === 'complete') {
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+    });
   }
 
   return {
     init: init,
-    startSharing: startSharing,
-    joinSession: joinSession,
-    isSender: function () { return _isSender; },
+    senderStart: senderStart,
+    receiverStart: receiverStart,
     getReceivedImages: function () { return _receivedImages.slice(); },
     saveAllImages: function () {
       if (!_receivedImages.length) { UI.toast('没有可保存的图片', 'warning'); return; }

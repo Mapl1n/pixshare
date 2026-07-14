@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PixShare">
-  <meta name="description" content="P2P 图片无损直传 — 跳过微信压缩，点对点原图传输">
+  <meta name="description" content="P2P 图片无损直传 — 纯 WebRTC 手动交换，零服务器，永远不断连">
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
@@ -22,7 +22,7 @@
         <div class="logo">📸</div>
         <div>
           <h1>PixShare</h1>
-          <p class="header-sub">P2P 无损传图 · 不压缩画质</p>
+          <p class="header-sub">P2P 无损传图 · 零服务器</p>
         </div>
       </div>
       <div id="connection-status" class="conn-status disconnected">
@@ -32,12 +32,15 @@
     </header>
 
     <main id="main-content">
-      <!-- ============== SENDER MODE ============== -->
-      <div id="sender-mode">
+
+      <!-- ==================== SENDER SECTION ==================== -->
+      <section class="role-section">
+        <h2 class="role-title">📤 我是发送方</h2>
+
         <!-- Drop zone -->
         <div id="drop-zone" class="drop-zone">
           <div class="drop-icon">
-            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           </div>
           <p class="drop-title">点击选择要发送的图片</p>
           <p class="drop-sub">或拖拽图片到此处</p>
@@ -51,62 +54,65 @@
           <button id="btn-clear" class="btn btn-outline">清空</button>
         </div>
 
-        <!-- Share section -->
-        <div id="share-area" class="share-area hidden">
-          <button id="btn-share" class="btn btn-primary btn-large">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-            开始分享
-          </button>
+        <!-- Generate offer button -->
+        <button id="btn-share" class="btn btn-primary btn-large hidden">
+          📤 生成链接，发送给好友
+        </button>
 
-          <!-- Active share session -->
-          <div id="active-share" class="active-share hidden">
-            <div class="share-link-box">
-              <p class="share-label">📤 将链接发给好友</p>
-              <div class="share-actions">
-                <button id="btn-share-link" class="btn btn-primary btn-large btn-glow">
-                  📤 一键分享给微信好友
-                </button>
-                <p class="share-or">链接已自动复制，也可手动粘贴：</p>
-                <div class="link-row">
-                  <input type="text" id="share-link-input" readonly class="link-input" value="">
-                  <button id="btn-copy-link" class="btn btn-outline btn-small">复制</button>
-                </div>
-              </div>
-              <p class="share-warning">⚠️ 发送方请<b>保持页面打开</b>，切到微信发完链接后请切回本页面</p>
+        <!-- Step 1: Show offer -->
+        <div id="sender-step1" class="signal-panel hidden">
+          <div class="step-num">第 1 步</div>
+          <p class="step-desc">复制下面这段文本，<strong>通过微信发给好友</strong></p>
+          <textarea id="sender-offer-text" readonly class="signal-ta"></textarea>
+          <button id="btn-copy-offer" class="btn btn-primary btn-large">📋 复制文本发给好友</button>
+          <p class="step-hint">发给好友后，请等待好友回传 Answer</p>
+
+          <hr class="signal-divider">
+
+          <div class="step-num">第 2 步（等好友回传后）</div>
+          <p class="step-desc">粘贴好友发回的 <strong>Answer</strong>，点「完成连接」</p>
+          <textarea id="sender-answer-input" class="signal-ta" rows="3" placeholder="粘贴好友回传的 Answer 文本..."></textarea>
+          <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 完成连接</button>
+        </div>
+
+        <!-- Step 2: Connected, sending -->
+        <div id="sender-connected" class="hidden">
+          <div id="transfer-progress" class="transfer-progress">
+            <div class="progress-header">
+              <span>📤 正在发送...</span>
+              <span id="send-progress-text">0%</span>
             </div>
-          </div>
-
-          <!-- Manual signaling -->
-          <div id="manual-signal-panel" class="manual-panel hidden">
-            <p class="manual-instruction">① 复制下面的 Offer 发给好友</p>
-            <textarea id="manual-offer" readonly class="signal-textarea" rows="4"></textarea>
-            <button id="btn-copy-offer" class="btn btn-secondary btn-small">复制 Offer</button>
-            <p class="manual-instruction" style="margin-top:16px">② 粘贴好友发回的 Answer：</p>
-            <textarea id="manual-answer" class="signal-textarea" rows="4" placeholder="粘贴好友的 Answer..."></textarea>
-            <button id="btn-submit-answer" class="btn btn-primary btn-small">提交 Answer</button>
+            <div class="progress-bar-wrap"><div id="send-progress-bar" class="progress-fill" style="width:0%"></div></div>
+            <p id="send-file-name" class="progress-file"></p>
           </div>
         </div>
+      </section>
 
-        <!-- Transfer progress -->
-        <div id="transfer-progress" class="transfer-progress hidden">
-          <div class="progress-header">
-            <span>📤 正在发送...</span>
-            <span id="send-progress-text">0%</span>
-          </div>
-          <div class="progress-bar-wrap"><div id="send-progress-bar" class="progress-fill" style="width:0%"></div></div>
-          <p id="send-file-name" class="progress-file"></p>
-        </div>
-      </div>
+      <hr class="role-divider">
 
-      <!-- ============== RECEIVER MODE ============== -->
-      <div id="receiver-mode" class="hidden">
-        <div id="receiver-connecting" class="receiver-state">
-          <div class="loading-spinner"></div>
-          <p>正在连接发送方...</p>
-          <p class="state-sub" id="connecting-peer-id"></p>
+      <!-- ==================== RECEIVER SECTION ==================== -->
+      <section class="role-section" id="receiver-area">
+        <h2 class="role-title">📥 我是接收方</h2>
+
+        <!-- Step 1: Paste offer -->
+        <div id="receiver-step1">
+          <div class="step-num">第 1 步</div>
+          <p class="step-desc">粘贴发送方发来的 <strong>Offer</strong> 文本，点「连接」</p>
+          <textarea id="recv-offer-input" class="signal-ta" rows="5" placeholder="粘贴发送方发来的 Offer 文本..."></textarea>
+          <button id="btn-recv-start" class="btn btn-primary btn-large">🔗 连接发送方</button>
         </div>
 
-        <div id="receiver-receiving" class="receiver-state hidden">
+        <!-- Step 2: Show answer -->
+        <div id="receiver-step2" class="signal-panel hidden">
+          <div class="step-num">第 2 步</div>
+          <p class="step-desc">复制下面这段 Answer 文本，<strong>发回给发送方</strong></p>
+          <textarea id="recv-answer-text" readonly class="signal-ta"></textarea>
+          <button id="btn-copy-answer" class="btn btn-primary btn-large">📋 复制 Answer 发回给对方</button>
+          <p class="step-hint">发回给对方后，等待对方确认连接</p>
+        </div>
+
+        <!-- Receiving -->
+        <div id="receiver-receiving" class="hidden receiver-state">
           <div class="progress-header">
             <span>📥 正在接收...</span>
             <span id="recv-progress-text">0%</span>
@@ -115,7 +121,8 @@
           <p id="recv-file-name" class="progress-file"></p>
         </div>
 
-        <div id="receiver-complete" class="receiver-state hidden">
+        <!-- Complete -->
+        <div id="receiver-complete" class="hidden receiver-state">
           <div class="complete-icon">✅</div>
           <p class="complete-title">接收完成！</p>
           <p id="recv-summary" class="complete-meta"></p>
@@ -123,22 +130,22 @@
           <div class="recv-actions">
             <button id="btn-save-all" class="btn btn-primary">📥 全部保存</button>
           </div>
-          <p class="ios-hint hidden" id="ios-hint">iOS 提示：长按照片 →「存储到"照片"」即可逐张保存</p>
+          <p id="ios-hint" class="ios-hint hidden">iOS：长按照片 →「存储到"照片"」逐张保存</p>
         </div>
 
-        <div id="receiver-error" class="receiver-state hidden">
+        <!-- Error -->
+        <div id="receiver-error" class="hidden receiver-state">
           <div class="error-icon">❌</div>
           <p id="recv-error-msg" class="error-msg">连接失败</p>
-          <button id="btn-retry" class="btn btn-primary">重试</button>
+          <button id="btn-retry" class="btn btn-primary">🔄 重新开始</button>
         </div>
-      </div>
+      </section>
     </main>
 
     <!-- Toast -->
     <div id="toast-container" class="toast-container"></div>
   </div>
 
-  <script src="./lib/peerjs.min.js"></script>
   <script src="./js/utils.js"></script>
   <script src="./js/ui-controller.js"></script>
   <script src="./js/file-handler.js"></script>
