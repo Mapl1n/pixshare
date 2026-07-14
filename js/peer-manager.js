@@ -1,8 +1,11 @@
 /**
  * peer-manager.js — WebRTC P2P + MQTT 6-digit room relay
  *
- * Sender: enters 6-digit code → publishes SDP offer → waits for answer → P2P
- * Receiver: enters same 6-digit code → reads offer → publishes answer → P2P
+ * Flow:
+ *   1. Sender creates room → publishes offer → waits for join request
+ *   2. Receiver joins room → sees offer → clicks "申请加入" → sends join-request
+ *   3. Sender sees "有人申请加入" → clicks "确认" → sends confirm → SDP exchange
+ *   4. P2P established → file transfer
  */
 PIX.PeerManager = (function () {
   'use strict';
@@ -14,39 +17,32 @@ PIX.PeerManager = (function () {
   var _receivedImages = [];
   var _transferComplete = false;
   var _code = '';
+  var _offerSDP = '';
 
   var ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   var CHUNK_SIZE = 16 * 1024;
 
   // ---- Init ----
   function init() {
-    // Sender flow: show digit panel when "开始发送" clicked
     document.getElementById('btn-share').addEventListener('click', function () {
       document.getElementById('sender-panel').classList.remove('hidden');
       document.getElementById('btn-share').classList.add('hidden');
     });
-    document.getElementById('btn-create-room').addEventListener('click', senderStart);
-    document.getElementById('btn-join-room').addEventListener('click', receiverStart);
+    document.getElementById('btn-create-room').addEventListener('click', senderCreateRoom);
+    document.getElementById('btn-confirm-join').addEventListener('click', senderConfirmJoin);
+    document.getElementById('btn-join-room').addEventListener('click', receiverJoinRoom);
     document.getElementById('btn-retry').addEventListener('click', function () { UI.resetAll(); });
   }
 
-  // ================================================================
-  //  CODE INPUT HELPERS
-  // ================================================================
-  function getSenderCode() {
-    return document.getElementById('scode').value.replace(/\D/g, '');
-  }
-  function getReceiverCode() {
-    return document.getElementById('rcode').value.replace(/\D/g, '');
-  }
-  function isValidCode(code) {
-    return /^\d{6}$/.test(code);
-  }
+  // ---- Helpers ----
+  function getSenderCode() { return document.getElementById('scode').value.replace(/\D/g, ''); }
+  function getReceiverCode() { return document.getElementById('rcode').value.replace(/\D/g, ''); }
+  function isValidCode(code) { return /^\d{6}$/.test(code); }
 
   // ================================================================
-  //  SENDER
+  //  SENDER: create room, wait for join request
   // ================================================================
-  function senderStart() {
+function senderCreateRoom() {
     var files = PIX.FileHandler.getFiles();
     if (!files.length) { UI.toast('请先选择图片', 'warning'); return; }
 
@@ -58,12 +54,11 @@ PIX.PeerManager = (function () {
     _transferComplete = false;
 
     UI.showSenderWaiting(_code);
-    UI.setConnStatus('connecting', '等待好友加入...');
+    UI.setConnStatus('connecting', '创建房间...');
 
     PIX.Relay.connect(_code).then(function () {
-      return _createOffer();
-    }).then(function (offerSDP) {
-      return PIX.Relay.publishOffer(offerSDP, _onAnswerReceived);
+      PIX.Relay.listenJoinRequest(_onJoinRequest);
+      UI.setConnStatus('connected', '等待好友申请加入...');
     }).catch(function (err) {
       console.error('Sender error:', err);
       UI.toast('连接失败: ' + err.message, 'error');
@@ -71,57 +66,67 @@ PIX.PeerManager = (function () {
     });
   }
 
-  function _createOffer() {
-    return new Promise(function (resolve, reject) {
-      _pc = new RTCPeerConnection(ICE_SERVERS);
-      _dc = _pc.createDataChannel('pixshare', { ordered: true });
-      _setupDataChannel(_dc, _pendingFiles);
-      _pc.onicecandidate = function (e) {};
-
-      _pc.createOffer()
-        .then(function (o) { return _pc.setLocalDescription(o); })
-        .then(function () { return _waitForIce(_pc, 2000); })
-        .then(function () {
-          var sdp = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
-          resolve(sdp);
-        })
-        .catch(reject);
-
-      _pc.oniceconnectionstatechange = function () {
-        var s = _pc.iceConnectionState;
-        if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', '已连接 ✅');
-      };
-    });
+  function _onJoinRequest(msg) {
+    UI.showSenderJoinRequest(_code);
+    document.getElementById('btn-confirm-join').onclick = senderConfirmJoin;
   }
 
-  function _onAnswerReceived(answerText) {
-    // Show joined confirmation
+  // ---- SENDER: confirm → create offer → publish → wait for answer ----
+  function senderConfirmJoin() {
     UI.showSenderJoined();
-    UI.setConnStatus('connecting', '好友已加入！建立 P2P...');
+    UI.setConnStatus('connecting', '建立 P2P...');
 
-    PIX.Relay.disconnect();
+    // Create WebRTC peer + offer NOW (after confirming)
+    _pc = new RTCPeerConnection(ICE_SERVERS);
+    _dc = _pc.createDataChannel('pixshare', { ordered: true });
+    _setupDataChannel(_dc, _pendingFiles);
+    _pc.onicecandidate = function (e) {};
 
-    try {
-      var m = answerText.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
-      if (m) answerText = m[0];
-      var answer = JSON.parse(answerText);
-    } catch (e) {
-      UI.toast('收到无效的回复', 'error');
-      return;
-    }
+    _pc.oniceconnectionstatechange = function () {
+      var s = _pc.iceConnectionState;
+      if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', '已连接 ✅');
+    };
 
-    _pc.setRemoteDescription(new RTCSessionDescription(answer)).then(function () {
-      UI.showSenderConnected();
-      UI.setConnStatus('connected', 'P2P 已连接！正在传图...');
-    }).catch(function (err) {
-      UI.toast('连接失败: ' + err.message, 'error');
-    });
+    _pc.createOffer()
+      .then(function (o) { return _pc.setLocalDescription(o); })
+      .then(function () { return _waitForIce(_pc, 2000); })
+      .then(function () {
+        _offerSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
+        // Publish confirm + offer to receiver
+        return PIX.Relay.publishConfirm('accepted');
+      })
+      .then(function () {
+        return PIX.Relay.publishOffer(_offerSDP);
+      })
+      .then(function () {
+        // Listen for answer
+        PIX.Relay.listenAnswer(function (answerText) {
+          PIX.Relay.disconnect();
+          try {
+            var m = answerText.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
+            if (m) answerText = m[0];
+            var answer = JSON.parse(answerText);
+            _pc.setRemoteDescription(new RTCSessionDescription(answer)).then(function () {
+              UI.showSenderConnected();
+              UI.setConnStatus('connected', 'P2P 已连接！正在传图...');
+            }).catch(function (err) {
+              UI.toast('连接失败: ' + err.message, 'error');
+            });
+          } catch (e) {
+            UI.toast('收到无效的回复', 'error');
+          }
+        });
+      })
+      .catch(function (err) {
+        console.error('Confirm error:', err);
+        UI.toast('连接失败: ' + err.message, 'error');
+      });
   }
 
   // ================================================================
-  //  RECEIVER
+  //  RECEIVER: join room, send join request, wait for confirm
   // ================================================================
-  function receiverStart() {
+  function receiverJoinRoom() {
     _code = getReceiverCode();
     if (!isValidCode(_code)) { UI.toast('请输入完整的 6 位数字', 'warning'); return; }
 
@@ -129,11 +134,20 @@ PIX.PeerManager = (function () {
     _receivedImages = [];
     _transferComplete = false;
 
-    UI.showReceiverWaiting(_code);
-    UI.setConnStatus('connecting', '等待发送方...');
+    UI.showReceiverJoining(_code);
+    UI.setConnStatus('connecting', '加入房间...');
 
     PIX.Relay.connect(_code).then(function () {
-      PIX.Relay.waitForOffer(_onOfferReceived);
+      // Step 1: Send join request
+      PIX.Relay.publishJoinRequest('apply').then(function () {
+        UI.showReceiverWaitingConfirm(_code);
+        UI.setConnStatus('connecting', '等待发送方确认...');
+
+        // Step 2: Wait for sender to confirm, then read their offer
+        PIX.Relay.listenConfirmAndOffer(function (confirmMsg, offerText) {
+          _processReceivedOffer(offerText);
+        });
+      });
     }).catch(function (err) {
       console.error('Receiver error:', err);
       UI.toast('连接失败: ' + err.message, 'error');
@@ -141,18 +155,16 @@ PIX.PeerManager = (function () {
     });
   }
 
-  function _onOfferReceived(offerText) {
-    // Extract JSON
+  function _processReceivedOffer(offerText) {
     var m = offerText.match(/\{[\s\S]*"type"\s*:\s*"offer"[\s\S]*\}/);
     if (m) offerText = m[0];
 
     var offer;
-    try { offer = JSON.parse(offerText); } catch (e) { UI.toast('收到无效的 Offer', 'error'); return; }
+    try { offer = JSON.parse(offerText); } catch (e) { UI.toast('收到无效的连接码', 'error'); return; }
 
     UI.showReceiverJoined();
-    UI.setConnStatus('connecting', '已连接！回复发送方...');
+    UI.setConnStatus('connecting', '连接中...');
 
-    // Create peer and answer
     _pc = new RTCPeerConnection(ICE_SERVERS);
     _pc.ondatachannel = function (event) { _dc = event.channel; _setupReceiverChannel(_dc); };
     _pc.onicecandidate = function (e) {};

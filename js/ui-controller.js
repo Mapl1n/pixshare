@@ -20,11 +20,13 @@ PIX.UI = (function () {
     els.sendProgText = document.getElementById('send-progress-text');
     els.sendFileName = document.getElementById('send-file-name');
     els.senderWait   = document.getElementById('sender-waiting');
+    els.senderJoinReq = document.getElementById('sender-join-request');
     els.senderJoined = document.getElementById('sender-joined');
 
     // Receiver
     els.recvPanel    = document.getElementById('receiver-panel');
     els.recvWait     = document.getElementById('receiver-waiting');
+    els.recvWaitCfm  = document.getElementById('receiver-waiting-confirm');
     els.recvJoined   = document.getElementById('receiver-joined');
     els.recvReceiving = document.getElementById('receiver-receiving');
     els.recvComplete = document.getElementById('receiver-complete');
@@ -47,17 +49,18 @@ PIX.UI = (function () {
   function resetAll() {
     els.senderPanel.classList.add('hidden');
     els.senderWait.classList.add('hidden');
+    els.senderJoinReq.classList.add('hidden');
     els.senderJoined.classList.add('hidden');
     els.senderConnected.classList.add('hidden');
     els.transferProg.classList.add('hidden');
     els.recvPanel.classList.remove('hidden');
     els.recvWait.classList.add('hidden');
+    els.recvWaitCfm.classList.add('hidden');
     els.recvJoined.classList.add('hidden');
     els.recvReceiving.classList.add('hidden');
     els.recvComplete.classList.add('hidden');
     els.recvError.classList.add('hidden');
     setConnStatus('disconnected', '未连接');
-    // Clear code inputs
     var sc = document.getElementById('scode'), rc = document.getElementById('rcode');
     if (sc) sc.value = '';
     if (rc) rc.value = '';
@@ -121,16 +124,24 @@ PIX.UI = (function () {
   function showSenderWaiting(code) {
     els.senderPanel.classList.add('hidden');
     els.senderWait.classList.remove('hidden');
+    els.senderJoinReq.classList.add('hidden');
     els.senderWait.querySelector('.code-display').textContent = code;
+  }
+
+  function showSenderJoinRequest(code) {
+    els.senderWait.classList.add('hidden');
+    els.senderJoinReq.classList.remove('hidden');
   }
 
   function showSenderJoined() {
     els.senderWait.classList.add('hidden');
+    els.senderJoinReq.classList.add('hidden');
     els.senderJoined.classList.remove('hidden');
   }
 
   function showSenderConnected() {
     els.senderWait.classList.add('hidden');
+    els.senderJoinReq.classList.add('hidden');
     els.senderJoined.classList.add('hidden');
     els.senderConnected.classList.remove('hidden');
     els.transferProg.classList.remove('hidden');
@@ -144,15 +155,23 @@ PIX.UI = (function () {
   }
 
   // ---- Receiver ----
-  function showReceiverWaiting(code) {
+  function showReceiverJoining(code) {
     els.recvPanel.classList.add('hidden');
     els.recvWait.classList.remove('hidden');
+    els.recvWaitCfm.classList.add('hidden');
     els.recvJoined.classList.add('hidden');
     els.recvWait.querySelector('.code-display').textContent = code;
   }
 
+  function showReceiverWaitingConfirm(code) {
+    els.recvWait.classList.add('hidden');
+    els.recvWaitCfm.classList.remove('hidden');
+    els.recvJoined.classList.add('hidden');
+  }
+
   function showReceiverJoined() {
     els.recvWait.classList.add('hidden');
+    els.recvWaitCfm.classList.add('hidden');
     els.recvJoined.classList.remove('hidden');
   }
 
@@ -220,11 +239,11 @@ PIX.UI = (function () {
   return {
     init: init, resetAll: resetAll, setConnStatus: setConnStatus,
     renderFileGrid: renderFileGrid,
-    showSenderWaiting: showSenderWaiting, showSenderJoined: showSenderJoined,
-    showSenderConnected: showSenderConnected,
+    showSenderWaiting: showSenderWaiting, showSenderJoinRequest: showSenderJoinRequest,
+    showSenderJoined: showSenderJoined, showSenderConnected: showSenderConnected,
     showSendProgress: showSendProgress, updateSendProgress: updateSendProgress,
-    showReceiverWaiting: showReceiverWaiting, showReceiverJoined: showReceiverJoined,
-    showReceiverReceiving: showReceiverReceiving,
+    showReceiverJoining: showReceiverJoining, showReceiverWaitingConfirm: showReceiverWaitingConfirm,
+    showReceiverJoined: showReceiverJoined, showReceiverReceiving: showReceiverReceiving,
     updateRecvProgress: updateRecvProgress, showReceiverComplete: showReceiverComplete,
     showReceiverError: showReceiverError, showLightbox: showLightbox, toast: toast
   };

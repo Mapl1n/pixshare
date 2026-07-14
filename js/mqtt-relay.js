@@ -1,10 +1,11 @@
 /**
  * mqtt-relay.js — 6-digit code room via public MQTT broker
- * Zero config. Uses broker.emqx.io (free public MQTT broker).
  *
- * Topic structure:
- *   pixshare/CODE/offer   — sender publishes offer SDP
- *   pixshare/CODE/answer  — receiver publishes answer SDP
+ * Topics:
+ *   pixshare/CODE/offer        — sender publishes offer SDP
+ *   pixshare/CODE/join-request — receiver publishes "apply" when wants to join
+ *   pixshare/CODE/confirm      — sender publishes "accepted" to confirm
+ *   pixshare/CODE/answer       — receiver publishes answer SDP after confirmed
  */
 PIX.Relay = (function () {
   'use strict';
@@ -13,15 +14,8 @@ PIX.Relay = (function () {
   var _client = null;
   var _code = '';
   var _isConnected = false;
-  var _onOffer = null;
-  var _onAnswer = null;
 
-  // MQTT broker (free, public, no account needed)
   var BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
-
-  function init() {
-    // Nothing needed on init
-  }
 
   function connect(code) {
     _code = code;
@@ -39,99 +33,113 @@ PIX.Relay = (function () {
 
     return new Promise(function (resolve, reject) {
       var done = false;
-
       _client.on('connect', function () {
-        if (done) return;
-        done = true;
-        _isConnected = true;
-
-        // Subscribe to both offer and answer topics
-        var offerTopic = 'pixshare/' + _code + '/offer';
-        var answerTopic = 'pixshare/' + _code + '/answer';
-        _client.subscribe([offerTopic, answerTopic], function (err) {
-          if (err) {
-            UI.toast('订阅失败', 'error');
-            reject(err);
-            return;
-          }
+        if (done) return; done = true; _isConnected = true;
+        // Subscribe to all room topics
+        _client.subscribe('pixshare/' + _code + '/#', function (err) {
+          if (err) { reject(err); return; }
           resolve();
         });
       });
-
-      _client.on('message', function (topic, message) {
-        var text = message.toString();
-        if (topic.endsWith('/offer') && _onOffer) {
-          _onOffer(text);
-        } else if (topic.endsWith('/answer') && _onAnswer) {
-          _onAnswer(text);
-        }
-      });
-
-      _client.on('error', function (err) {
-        if (!done) { done = true; reject(err); }
-        else { console.warn('MQTT error:', err); }
-      });
-
-      _client.on('close', function () {
-        _isConnected = false;
-      });
-
-      setTimeout(function () {
-        if (!done) { done = true; reject(new Error('连接超时')); }
-      }, 15000);
+      _client.on('error', function (err) { if (!done) { done = true; reject(err); } });
+      _client.on('close', function () { _isConnected = false; });
+      setTimeout(function () { if (!done) { done = true; reject(new Error('连接超时')); } }, 15000);
     });
   }
 
-  // ---- Sender: publish offer, listen for answer ----
-  function publishOffer(offerSDP, onAnswer) {
-    _onAnswer = onAnswer;
-    var topic = 'pixshare/' + _code + '/offer';
+  // ---- Publish helpers ----
+  function publishOffer(sdp, unused) {
+    return _pub('offer', sdp);
+  }
+
+  function publishJoinRequest(msg) {
+    return _pub('join-request', msg);
+  }
+
+  function publishConfirm(msg) {
+    return _pub('confirm', msg);
+  }
+
+  function publishAnswer(sdp) {
+    return _pub('answer', sdp);
+  }
+
+  function _pub(topic, payload) {
     return new Promise(function (resolve, reject) {
-      _client.publish(topic, offerSDP, { qos: 1 }, function (err) {
+      _client.publish('pixshare/' + _code + '/' + topic, payload, { qos: 1 }, function (err) {
         if (err) { reject(err); return; }
         resolve();
       });
     });
   }
 
-  // ---- Receiver: read offer, then publish answer ----
-  function waitForOffer(onOffer) {
-    _onOffer = onOffer;
+  // ---- Listen helpers ----
+  function readOffer(cb) {
+    _onceMessage('/offer', cb);
   }
 
-  function publishAnswer(answerSDP) {
-    var topic = 'pixshare/' + _code + '/answer';
-    return new Promise(function (resolve, reject) {
-      _client.publish(topic, answerSDP, { qos: 1 }, function (err) {
-        if (err) { reject(err); return; }
-        resolve();
+  function listenJoinRequest(cb) {
+    _onMessage('/join-request', cb);
+  }
+
+  function listenConfirm(cb) {
+    _onceMessage('/confirm', cb);
+  }
+
+  function listenAnswer(cb) {
+    _onceMessage('/answer', cb);
+  }
+
+  // Combined: wait for confirm, then read offer
+  function listenConfirmAndOffer(cb) {
+    _onceMessage('/confirm', function (confirmMsg) {
+      _onceMessage('/offer', function (offerText) {
+        cb(confirmMsg, offerText);
       });
     });
+  }
+
+  // ---- Internal: message routing ----
+  var _handlers = {};
+
+  function _onMessage(suffix, cb) {
+    _handlers[_code + suffix] = cb;
+    _client.on('message', _router);
+  }
+
+  function _onceMessage(suffix, cb) {
+    _handlers[_code + suffix] = function (data) {
+      cb(data);
+      delete _handlers[_code + suffix];
+    };
+    _client.on('message', _router);
+  }
+
+  function _router(topic, message) {
+    var key = topic.replace('pixshare/', '');
+    var h = _handlers[key];
+    if (h) {
+      h(message.toString());
+    }
   }
 
   // ---- Cleanup ----
   function disconnect() {
-    _onOffer = null;
-    _onAnswer = null;
-    if (_client) {
-      try { _client.end(true); } catch (e) {}
-      _client = null;
-    }
+    _handlers = {};
+    if (_client) { try { _client.end(true); } catch (e) {}; _client = null; }
     _isConnected = false;
     _code = '';
   }
 
-  function isConnected() { return _isConnected; }
-  function getCode() { return _code; }
-
   return {
-    init: init,
     connect: connect,
     publishOffer: publishOffer,
-    waitForOffer: waitForOffer,
+    publishJoinRequest: publishJoinRequest,
+    publishConfirm: publishConfirm,
     publishAnswer: publishAnswer,
-    disconnect: disconnect,
-    isConnected: isConnected,
-    getCode: getCode
+    listenJoinRequest: listenJoinRequest,
+    listenConfirmAndOffer: listenConfirmAndOffer,
+    listenAnswer: listenAnswer,
+    disconnect: disconnect
   };
 })();

@@ -20,7 +20,7 @@
       <div class="header-left">
         <div class="logo">📸</div>
         <div>
-          <h1>PixShare <span style="font-size:0.55rem;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:10px;vertical-align:middle">v3.1</span></h1>
+          <h1>PixShare <span style="font-size:0.55rem;color:var(--color-primary);background:var(--color-primary-light);padding:2px 6px;border-radius:10px;vertical-align:middle">v3.2</span></h1>
           <p class="header-sub">6 位数字连接 · 原图直传</p>
         </div>
       </div>
@@ -62,18 +62,26 @@
           <p class="panel-hint">把这 6 位数字告诉好友，好友输入同一个数字即可连接</p>
         </div>
 
-        <!-- Sender: waiting -->
+        <!-- Sender: waiting for join request -->
         <div id="sender-waiting" class="hidden waiting-box">
           <div class="waiting-icon">⏳</div>
-          <p class="waiting-title">等待好友加入...</p>
+          <p class="waiting-title">房间已创建</p>
           <p class="waiting-code">房间号：<strong class="code-display"></strong></p>
-          <p class="waiting-hint">好友输入相同 6 位数字后自动连接</p>
+          <p class="waiting-hint">等待好友输入此数字并申请加入...</p>
         </div>
 
-        <!-- Sender: receiver joined -->
+        <!-- Sender: join request received! -->
+        <div id="sender-join-request" class="hidden waiting-box" style="background:#fffbeb;border-color:#fde68a">
+          <div class="waiting-icon">🔔</div>
+          <p class="waiting-title" style="color:#92400e">有人申请加入！</p>
+          <p id="srq-file-count" class="waiting-hint" style="color:#92400e"></p>
+          <button id="btn-confirm-join" class="btn btn-primary btn-large" style="margin-top:8px">✅ 确认接收</button>
+        </div>
+
+        <!-- Sender: joined, building P2P -->
         <div id="sender-joined" class="hidden waiting-box" style="background:#ecfdf5;border-color:#a7f3d0">
           <div class="waiting-icon">🔗</div>
-          <p class="waiting-title" style="color:#065f46">好友已加入！</p>
+          <p class="waiting-title" style="color:#065f46">已确认！</p>
           <p class="waiting-hint">正在建立 P2P 连接...</p>
         </div>
 
@@ -104,19 +112,26 @@
           <button id="btn-join-room" class="btn btn-primary btn-large">加入房间</button>
         </div>
 
-        <!-- Receiver: waiting -->
+        <!-- Receiver: joining room -->
         <div id="receiver-waiting" class="hidden waiting-box">
-          <div class="waiting-icon">⏳</div>
-          <p class="waiting-title">已加入房间</p>
+          <div class="waiting-icon">🔍</div>
+          <p class="waiting-title">正在查找房间...</p>
           <p class="waiting-code">房间号：<strong class="code-display"></strong></p>
+          <p class="waiting-hint">已找到发送方，正在申请加入...</p>
+        </div>
+
+        <!-- Receiver: waiting for sender to confirm -->
+        <div id="receiver-waiting-confirm" class="hidden waiting-box" style="background:#fffbeb;border-color:#fde68a">
+          <div class="waiting-icon">⏳</div>
+          <p class="waiting-title" style="color:#92400e">已申请加入</p>
           <p class="waiting-hint">等待发送方确认...</p>
         </div>
 
-        <!-- Receiver: sender confirmed -->
+        <!-- Receiver: confirmed, building P2P -->
         <div id="receiver-joined" class="hidden waiting-box" style="background:#ecfdf5;border-color:#a7f3d0">
           <div class="waiting-icon">🔗</div>
-          <p class="waiting-title" style="color:#065f46">已连接发送方！</p>
-          <p class="waiting-hint">正在建立 P2P 通道...</p>
+          <p class="waiting-title" style="color:#065f46">发送方已确认！</p>
+          <p class="waiting-hint">正在建立 P2P 连接...</p>
         </div>
 
         <!-- Receiver: receiving -->
