@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#7c3aed"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="PixShare"><title>PixShare — P2P无损传图</title>
+<script>/*--- MQTT.js loader with fallback CDNs ---*/
+(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js';s2.onerror=function(){var s3=document.createElement('script');s3.src='https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js';s3.onerror=function(){alert('网络不通，无法加载组件。请切WiFi后刷新。')};document.head.appendChild(s3)};document.head.appendChild(s2)};document.head.appendChild(s)})()</script>
+<style>
+:root{--bg:#fafafa;--s:#fff;--p:#7c3aed;--ph:#6d28d9;--pl:#f5f3ff;--t:#1a1a2e;--ts:#6b7280;--tm:#9ca3af;--b:#e5e7eb;--r:12px;--rs:8px;--sb:env(safe-area-inset-bottom,16px)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--t);line-height:1.5;min-height:100vh;min-height:100dvh}
+#app{max-width:640px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+#app-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--s);border-bottom:1px solid var(--b);position:sticky;top:0;z-index:100;min-height:56px}
+.hl{display:flex;align-items:center;gap:10px}.logo{font-size:26px;line-height:1}
+#app-header h1{font-size:1rem;font-weight:700;color:var(--p)}.hs{font-size:.65rem;color:var(--tm)}
+.cs{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;font-size:.7rem;font-weight:600}
+.cd{width:8px;height:8px;border-radius:50%}
+.cs.dc{background:#f3f4f6;color:var(--tm)}.cs.dc .cd{background:var(--tm)}
+.cs.cc{background:#fef3c7;color:#92400e}.cs.cc .cd{background:#f59e0b;animation:pulse 1s infinite}
+.cs.cn{background:#ecfdf5;color:#065f46}.cs.cn .cd{background:#10b981}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+#main{flex:1;padding:16px;padding-bottom:calc(16px + var(--sb));display:flex;flex-direction:column;gap:8px}
+.rs{h2{font-size:.95rem;font-weight:700;color:var(--t);padding-bottom:4px;border-bottom:2px solid var(--pl)}}
+.rs{gap:12px;display:flex;flex-direction:column}.rd{border:none;border-top:1px dashed var(--b);margin:4px 0}
+.dz{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 16px;border:2px dashed var(--b);border-radius:var(--r);background:var(--s);cursor:pointer;text-align:center;transition:all .2s}
+.dz.dr{border-color:var(--p);background:var(--pl)}.di{color:var(--tm);margin-bottom:8px}
+.dt{font-size:.9rem;font-weight:600;margin-bottom:2px}.ds{font-size:.8rem;color:var(--ts)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 18px;border:none;border-radius:var(--rs);font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;white-space:nowrap}
+.btn:active{transform:scale(.97)}.bp{background:var(--p);color:#fff}.bp:hover{background:var(--ph)}.bp:disabled{background:var(--tm);opacity:.6;cursor:not-allowed}
+.bs{background:var(--pl);color:var(--p)}.bo{background:transparent;color:var(--ts);border:1px solid var(--b)}
+.bl{width:100%;padding:14px;font-size:.95rem;border-radius:var(--r)}
+.tb{display:flex;gap:8px}
+.fg{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.fc{background:var(--s);border-radius:var(--rs);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);position:relative}
+.fct{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--bg)}
+.fcp{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--tm);font-size:32px}
+.fci{padding:6px 8px}.fcn{font-size:.7rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fcs{font-size:.65rem;color:var(--tm)}
+.fcr{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;border:none;font-size:12px;cursor:pointer;opacity:0;display:flex;align-items:center;justify-content:center}
+.fc:hover .fcr,.fc:active .fcr{opacity:1}@media(hover:none){.fcr{opacity:1}}
+.pd{font-size:.85rem;color:var(--t);margin-bottom:4px}.ph{font-size:.73rem;color:var(--tm);margin-top:8px;text-align:center}
+.ci{display:block;width:100%;max-width:260px;margin:10px auto;height:52px;text-align:center;font-size:1.8rem;font-weight:700;letter-spacing:6px;border:2px solid var(--b);border-radius:var(--rs);background:var(--s);color:var(--t);font-family:monospace;outline:none;transition:border-color .2s;-webkit-appearance:none}
+.ci:focus{border-color:var(--p);box-shadow:0 0 0 3px var(--pl)}
+.ci::placeholder{letter-spacing:6px;color:var(--tm);font-size:1.3rem}
+.wb{background:var(--pl);border:1px solid #ddd6fe;border-radius:var(--r);padding:24px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px}
+.wi{font-size:44px;animation:pulse 1s ease-in-out infinite}.wt{font-size:.95rem;font-weight:700;color:var(--p)}
+.wco{font-size:.85rem;color:var(--t)}.wco strong{font-size:1.4rem;letter-spacing:6px;color:var(--p)}.wh{font-size:.75rem;color:var(--tm)}
+.wby{background:#fffbeb;border-color:#fde68a}.wby .wt{color:#92400e}
+.wbg{background:#ecfdf5;border-color:#a7f3d0}.wbg .wt{color:#065f46}
+.tp{display:flex;flex-direction:column;gap:8px}.phr{display:flex;justify-content:space-between;font-size:.8rem;font-weight:600}
+.pbw{width:100%;height:8px;background:var(--b);border-radius:4px;overflow:hidden}
+.pf{height:100%;background:var(--p);border-radius:4px;transition:width .3s}
+.pfi{font-size:.75rem;color:var(--ts)}
+.rst{display:flex;flex-direction:column;align-items:center;padding:28px 16px;text-align:center;gap:10px}
+.ci2{font-size:44px}.ct{font-size:1.1rem;font-weight:700}.cm{font-size:.8rem;color:var(--ts)}
+.rig{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;width:100%}
+.ric{background:var(--s);border-radius:var(--rs);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);cursor:pointer}
+.ric img{width:100%;aspect-ratio:1;object-fit:cover;display:block}.ric .cl{font-size:.65rem;padding:4px 8px;color:var(--ts);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra{display:flex;gap:8px;justify-content:center;margin-top:8px}
+.ih{font-size:.72rem;color:var(--tm)}.ei{font-size:44px}.em{font-size:.9rem;color:#ef4444;font-weight:500}
+.sn{font-size:.75rem;font-weight:700;color:var(--p);background:var(--pl);display:inline-block;padding:4px 10px;border-radius:20px;align-self:flex-start}
+.sd{font-size:.85rem;color:var(--t)}.st{width:100%;padding:10px;border:1px solid var(--b);border-radius:6px;font-size:.65rem;font-family:monospace;resize:vertical;background:var(--bg);line-height:1.3;word-break:break-all}
+.sdi{border:none;border-top:1px solid var(--b);margin:4px 0}
+.lb{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.92);z-index:200;display:flex;align-items:center;justify-content:center}
+.lb img{max-width:100%;max-height:100%;object-fit:contain}
+.lbx{position:absolute;top:16px;right:16px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;border:none;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.to{position:fixed;bottom:calc(20px + var(--sb));left:50%;transform:translateX(-50%);z-index:1000;display:flex;flex-direction:column;gap:8px;width:calc(100% - 32px);max-width:400px;pointer-events:none}
+.tom{background:var(--t);color:#fff;padding:12px 16px;border-radius:8px;font-size:.85rem;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.1);animation:ti .3s ease,to .3s ease 2.5s forwards;pointer-events:auto;text-align:center}
+.tom.ok{background:#10b981}.tom.wn{background:#f59e0b;color:#000}.tom.er{background:#ef4444}
+@keyframes ti{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes to{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(16px)}}
+.hn{display:none!important}
+@media(min-width:640px){#app-header{padding:10px 24px}#main{padding:24px}.fg{grid-template-columns:repeat(3,1fr);gap:12px}.rig{grid-template-columns:repeat(3,1fr);gap:12px}.dz{padding:36px 20px}}
+@media(min-width:1024px){.fg{grid-template-columns:repeat(4,1fr);gap:14px}.rig{grid-template-columns:repeat(4,1fr);gap:14px}.rd{display:none}#main{flex-direction:row;gap:20px}.rs{flex:1}}
+</style></head><body>
+<div id="app">
+<header id="app-header"><div class="hl"><div class="logo">📸</div><div><h1>PixShare</h1><p class="hs">6位数字 · 原图直传 · 单文件版</p></div></div>
+<div id="cs" class="cs dc"><span class="cd"></span><span id="ct">未连接</span></div></header>
+<main id="main">
+<section class="rs"><h2>📤 发送方</h2>
+<div id="dz" class="dz"><div class="di"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><p class="dt">点击选择要发送的图片</p><p class="ds">或拖拽图片到此处</p><input type="file" id="fi" multiple accept="image/*,.heic,.heif,.avif" hidden></div>
+<div id="fg" class="fg hn"></div><div id="tb" class="tb hn"><button id="ba" class="btn bs">+ 添加</button><button id="bc" class="btn bo">清空</button></div>
+<button id="bsh" class="btn bp bl hn">开始发送</button>
+<div id="sp" class="hn"><p class="pd">输入一个 <strong>6 位数字</strong> 作为房间号：</p><input type="text" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" class="ci" id="sc" placeholder="000000"><button id="bcr" class="btn bp bl">创建房间</button><p class="ph">把这 6 位数字告诉好友</p></div>
+<div id="sw" class="hn wb"><div class="wi">⏳</div><p class="wt">房间已创建</p><p class="wco">房间号：<strong class="cdt"></strong></p><p class="wh">等待好友输入此数字并申请加入...</p></div>
+<div id="sj" class="hn wb wby"><div class="wi">🔔</div><p class="wt">有人申请加入！</p><button id="bcj" class="btn bp bl" style="margin-top:8px">✅ 确认接收</button></div>
+<div id="sjj" class="hn wb wbg"><div class="wi">🔗</div><p class="wt">已确认！</p><p class="wh">正在建立 P2P 连接...</p></div>
+<div id="scn" class="hn"><div id="tp" class="tp hn"><div class="phr"><span>📤 正在发送...</span><span id="spt">0%</span></div><div class="pbw"><div id="spb" class="pf" style="width:0%"></div></div><p id="sfn" class="pfi"></p></div></div>
+</section>
+<hr class="rd">
+<section class="rs"><h2>📥 接收方</h2>
+<div id="rp"><p class="pd">输入发送方给的 <strong>6 位数字</strong>：</p><input type="text" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" class="ci" id="rc" placeholder="000000"><button id="bjr" class="btn bp bl">加入房间</button></div>
+<div id="rw" class="hn wb"><div class="wi">🔍</div><p class="wt">正在查找房间...</p><p class="wco">房间号：<strong class="cdt"></strong></p><p class="wh">已找到发送方，正在申请加入...</p></div>
+<div id="rwc" class="hn wb wby"><div class="wi">⏳</div><p class="wt">已申请加入</p><p class="wh">等待发送方确认...</p></div>
+<div id="rj" class="hn wb wbg"><div class="wi">🔗</div><p class="wt">发送方已确认！</p><p class="wh">正在建立 P2P 连接...</p></div>
+<div id="rr" class="hn rst"><div class="phr"><span>📥 正在接收...</span><span id="rpt">0%</span></div><div class="pbw"><div id="rpb" class="pf" style="width:0%"></div></div><p id="rfn" class="pfi"></p></div>
+<div id="rcv" class="hn rst"><div class="ci2">✅</div><p class="ct">接收完成！</p><p id="rsu" class="cm"></p><div id="rig" class="rig"></div><div class="ra"><button id="bsa" class="btn bp bl">📥 全部保存</button></div><p id="ih" class="ih hn">iOS：长按照片 →「存储到"照片"」逐张保存</p></div>
+<div id="re" class="hn rst"><div class="ei">❌</div><p id="rem" class="em">连接失败</p><button id="brt" class="btn bp">🔄 重新开始</button></div>
+</section></main>
+<div id="to" class="to"></div></div>
+
+<script>
+/* ==================== PIXSHARE ALL-IN-ONE ==================== */
+(function(){
+'use strict';
+
+/* ---- Helpers ---- */
+function F(id){return document.getElementById(id)}
+function toast(msg,type){var t=document.createElement('div');t.className='tom '+(type||'');t.textContent=msg;t.setAttribute('role','alert');F('to').appendChild(t);setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t)},3000)}
+function fmtSize(b){if(b===0)return'0 B';var k=1024,s=['B','KB','MB','GB'];var i=Math.floor(Math.log(b)/Math.log(k));return(i===0?b:(b/Math.pow(k,i)).toFixed(1))+' '+s[i]}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function sfn(n){return n.replace(/[\\\/:*?"<>|]/g,'_').trim()}
+function isImg(f){if(f.type&&f.type.startsWith('image/'))return true;var n=f.name.toLowerCase();var e=['.jpg','.jpeg','.png','.gif','.webp','.avif','.heic','.heif','.bmp','.tiff','.tif','.svg'];for(var i=0;i<e.length;i++){if(n.endsWith(e[i]))return true}return false}
+function isIOS(){return /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)}
+
+/* ---- Connection Status ---- */
+function cs(s,t){var e=F('cs');e.className='cs '+s;F('ct').textContent=t}
+
+/* ---- File Grid ---- */
+var _files=[];
+function renderFiles(){
+  if(!_files.length){F('dz').classList.remove('hn');F('fg').classList.add('hn');F('tb').classList.add('hn');F('bsh').classList.add('hn');F('fg').innerHTML='';return}
+  F('dz').classList.add('hn');F('fg').classList.remove('hn');F('tb').classList.remove('hn');F('bsh').classList.remove('hn');
+  var h='';for(var i=0;i<_files.length;i++){var f=_files[i],n=esc(f.dn||f.file.name);h+='<div class="fc"><div id="th'+i+'"><div class="fcp">🖼</div></div><button class="fcr" data-i="'+i+'">✕</button><div class="fci"><div class="fcn" title="'+n+'">'+n+'</div><div class="fcs">'+fmtSize(f.sz)+'</div></div></div>'}
+  F('fg').innerHTML=h;
+  for(var j=0;j<_files.length;j++){(function(idx,file){var w=F('th'+idx);if(!w)return;try{var u=URL.createObjectURL(file);var img=document.createElement('img');img.className='fct';img.alt=file.name;img.src=u;w.innerHTML='';w.appendChild(img)}catch(e){}})(j,_files[j].file)}
+  F('fg').querySelectorAll('.fcr').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var idx=parseInt(this.getAttribute('data-i'),10);_files.splice(idx,1);renderFiles()})});
+  F('bsh').textContent='开始发送（'+_files.length+' 张）'
+}
+
+/* ---- Remove dropzone, add file handlers ---- */
+F('dz').addEventListener('click',function(){F('fi').click()});
+F('dz').setAttribute('tabindex','0');F('dz').setAttribute('role','button');
+F('dz').addEventListener('dragover',function(e){e.preventDefault();F('dz').classList.add('dr')});
+F('dz').addEventListener('dragleave',function(){F('dz').classList.remove('dr')});
+F('dz').addEventListener('drop',function(e){e.preventDefault();F('dz').classList.remove('dr');addFiles(e.dataTransfer.files)});
+F('fi').addEventListener('change',function(){if(F('fi').files.length){addFiles(F('fi').files);F('fi').value=''}});
+F('ba').addEventListener('click',function(){F('fi').click()});
+F('bc').addEventListener('click',function(){_files=[];renderFiles();toast('已清空','ok')});
+document.addEventListener('paste',function(e){if(!e.clipboardData||!e.clipboardData.items)return;var fl=[];for(var i=0;i<e.clipboardData.items.length;i++){var f=e.clipboardData.items[i].getAsFile();if(f)fl.push(f)}if(fl.length){e.preventDefault();addFiles(fl)}});
+
+function addFiles(fl){var a=[];for(var i=0;i<fl.length;i++){if(isImg(fl[i])){_files.push({file:fl[i],dn:sfn(fl[i].name),sz:fl[i].size,tp:fl[i].type});a.push(fl[i].name)}}if(a.length<fl.length)toast('已跳过 '+(fl.length-a.length)+' 个非图片文件','wn');renderFiles()}
+
+/* ---- Show/hide panels ---- */
+function show(el){if(typeof el==='string')el=F(el);el.classList.remove('hn')}
+function hide(el){if(typeof el==='string')el=F(el);el.classList.add('hn')}
+function hideAll(){hide('sp');hide('sw');hide('sj');hide('sjj');hide('scn');hide('rp');hide('rw');hide('rwc');hide('rj');hide('rr');hide('rcv');hide('re');F('tp').classList.add('hn')}
+
+/* ---- MQTT Broker pool ---- */
+var BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+var _mqtt=null,_code='',_connected=false;
+var _handlers={};
+
+function mqttConnect(code,brokerIdx){brokerIdx=brokerIdx||0;if(brokerIdx>=BROKERS.length)return Promise.reject(new Error('所有服务器不可用'));
+  _code=code;var url=BROKERS[brokerIdx];console.log('MQTT: trying '+url);
+  try{_mqtt=mqtt.connect(url,{clientId:'px_'+Math.random().toString(36).slice(2,10),clean:true,connectTimeout:8000,reconnectPeriod:2000})}catch(e){return mqttConnect(code,brokerIdx+1)}
+  return new Promise(function(resolve,reject){var done=false;
+    _mqtt.on('connect',function(){if(done)return;done=true;_connected=true;
+      _mqtt.subscribe('pixshare/'+_code+'/#',function(err){if(err){_mqtt.end();reject(err);return}resolve()})});
+    _mqtt.on('error',function(err){if(!done){done=true;_mqtt.end();mqttConnect(code,brokerIdx+1).then(resolve).catch(reject)}else{_connected=false}});
+    _mqtt.on('message',function(topic,message){var key=topic.replace('pixshare/','');var h=_handlers[key];if(h)h(message.toString())});
+    setTimeout(function(){if(!done){done=true;_mqtt.end();reject(new Error('连接超时'))}},12000)
+  });
+}
+function mqttPub(topic,payload){return new Promise(function(resolve,reject){_mqtt.publish('pixshare/'+_code+'/'+topic,payload,{qos:1},function(err){if(err){reject(err);return}resolve()})})}
+function once(topic,cb){_handlers[_code+'/'+topic]=function(d){delete _handlers[_code+'/'+topic];cb(d)}}
+function on(topic,cb){_handlers[_code+'/'+topic]=cb}
+function mqttDisconnect(){_handlers={};if(_mqtt)try{_mqtt.end(true)}catch(e){}_mqtt=null;_connected=false}
+
+/* ---- P2P Core ---- */
+var _pc=null,_dc=null,_isSender=false,_pendingFiles=null,_recvImages=[],_done=false;
+var ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun2.l.google.com:19302'},{urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'}]};
+
+function waitIce(pc,t){return new Promise(function(resolve){if(pc.iceGatheringState==='complete'){resolve();return}var to=setTimeout(function(){resolve()},t);pc.onicegatheringstatechange=function(){if(pc.iceGatheringState==='complete'){clearTimeout(to);resolve()}}})}
+
+/* SENDER FLOW */
+F('bsh').addEventListener('click',function(){show('sp');hide('bsh')});
+
+F('bcr').addEventListener('click',function(){
+  var code=F('sc').value.replace(/\D/g,'');if(!/^\d{6}$/.test(code)){toast('请输入完整的 6 位数字','wn');return}
+  _isSender=true;_pendingFiles=_files;_done=false;_code=code;
+  hide('sp');show('sw');F('sw').querySelector('.cdt').textContent=code;cs('cc','等待好友申请...');
+  mqttConnect(code).then(function(){on('join-request',function(){hide('sw');show('sj');cs('cc','有人申请加入！')})}).catch(function(err){if(!_done){toast('服务器不可用，请重试','er');cs('dc','连接失败')}})
+});
+
+F('bcj').addEventListener('click',function(){
+  hide('sj');show('sjj');cs('cc','建立P2P...');
+  _pc=new RTCPeerConnection(ICE);_dc=_pc.createDataChannel('px',{ordered:true});setupDC(_dc,_pendingFiles);
+  _pc.createOffer().then(function(o){return _pc.setLocalDescription(o)}).then(function(){return waitIce(_pc,2000)}).then(function(){
+    var sdp=JSON.stringify({sdp:_pc.localDescription.sdp,type:_pc.localDescription.type});
+    return mqttPub('confirm','accepted').then(function(){return mqttPub('offer',sdp)})
+  }).then(function(){
+    once('answer',function(at){
+      mqttDisconnect();var m=at.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);if(m)at=m[0];
+      try{var a=JSON.parse(at);_pc.setRemoteDescription(new RTCSessionDescription(a)).then(function(){hide('sjj');show('scn');F('tp').classList.remove('hn');cs('cn','P2P已连接！正在传图...')}).catch(function(){toast('连接失败','er')})}catch(e){toast('回复格式错误','er')}
+    })
+  }).catch(function(err){if(!_done){console.error(err);toast('连接失败，请重试','er');cs('dc','连接失败')}});
+  _pc.oniceconnectionstatechange=function(){var s=_pc.iceConnectionState;if(s==='connected'||s==='completed'){mqttDisconnect();cs('cn','已连接 ✅')}}
+});
+
+/* RECEIVER FLOW */
+F('bjr').addEventListener('click',function(){
+  var code=F('rc').value.replace(/\D/g,'');if(!/^\d{6}$/.test(code)){toast('请输入完整的 6 位数字','wn');return}
+  _isSender=false;_recvImages=[];_done=false;_code=code;
+  hide('rp');show('rw');F('rw').querySelector('.cdt').textContent=code;cs('cc','加入房间...');
+  mqttConnect(code).then(function(){return mqttPub('join-request','apply')}).then(function(){hide('rw');show('rwc');cs('cc','等待发送方确认...');
+    once('confirm',function(){once('offer',function(ot){hide('rwc');show('rj');cs('cc','建立 P2P...');processOffer(ot)})})
+  }).catch(function(err){if(!_done){console.error(err);hide('rw');toast('无法加入。对方可能还没创建房间。','er');show('rp');cs('dc','未连接')}})
+});
+
+function processOffer(ot){
+  var m=ot.match(/\{[\s\S]*"type"\s*:\s*"offer"[\s\S]*\}/);if(m)ot=m[0];
+  var offer;try{offer=JSON.parse(ot)}catch(e){toast('无效连接码','er');return}
+  _pc=new RTCPeerConnection(ICE);_pc.ondatachannel=function(e){_dc=e.channel;setupRecvDC(_dc)};
+  _pc.setRemoteDescription(new RTCSessionDescription(offer)).then(function(){return _pc.createAnswer()}).then(function(a){return _pc.setLocalDescription(a)}).then(function(){return waitIce(_pc,2000)}).then(function(){
+    var sdp=JSON.stringify({sdp:_pc.localDescription.sdp,type:_pc.localDescription.type});
+    return mqttPub('answer',sdp).then(function(){mqttDisconnect();cs('cc','等待P2P连接...')})
+  }).catch(function(err){if(!_done){console.error(err);toast('连接失败','er')}});
+  _pc.oniceconnectionstatechange=function(){var s=_pc.iceConnectionState;if(s==='connected'||s==='completed'){mqttDisconnect();cs('cn','P2P已连接！等待接收...')}}
+}
+
+/* ---- Data Channel ---- */
+function setupDC(dc,files){dc.onopen=function(){cs('cn','正在发送...');sendFiles(dc,files)};dc.onclose=function(){if(!_done)cs('dc','连接关闭')}}
+function setupRecvDC(dc){var cur=null,chunks=[],rs=0,fc=0,ec=0,tr=0,te=0;
+  dc.onopen=function(){cs('cn','已连接')};
+  dc.onmessage=function(e){var d=e.data;if(d instanceof ArrayBuffer){var a=new Uint8Array(d);chunks.push(a);rs+=a.byteLength;tr+=a.byteLength;if(cur&&cur.size>0)updRecv(Math.round(rs/cur.size*100),cur.name);if(te>0)cs('cn','接收中 '+Math.round(tr/te*100)+'%');return}if(typeof d!=='string')return;var m;try{m=JSON.parse(d)}catch(_){return}
+  switch(m.type){case'metadata':te=m.totalSize;ec=m.count;hide('rj');show('rr');updRecv(0,'准备接收 '+m.count+' 张...');break;case'file-start':cur=m;chunks=[];rs=0;updRecv(0,m.name);break;case'file-end':if(cur&&chunks.length){_recvImages.push({name:cur.name,blob:new Blob(chunks,{type:cur.mime||'application/octet-stream'}),size:cur.size});fc++;cs('cn','接收 '+fc+'/'+ec)}cur=null;chunks=[];rs=0;break;case'complete':_done=true;hide('rr');show('rcv');cs('cn','接收完成 ✅');showImgs();break}};
+  dc.onclose=function(){if(!_done&&_recvImages.length>0){showImgs();toast('连接关闭，已接收 '+_recvImages.length+' 张','wn')}}
+}
+function sendFiles(dc,files){var ts=0,sb=0;for(var i=0;i<files.length;i++)ts+=files[i].sz;dc.send(JSON.stringify({type:'metadata',files:files.map(function(f){return{name:f.dn,size:f.sz,mime:f.tp}}),totalSize:ts,count:files.length}));var idx=0;
+  function sn(){if(idx>=files.length){dc.send(JSON.stringify({type:'complete'}));_done=true;updSend(100,'全部发送完成！');cs('cn','发送完成 ✅');return}
+    var f=files[idx];updSend(0,f.dn);f.file.arrayBuffer().then(function(b){var sz=b.byteLength;dc.send(JSON.stringify({type:'file-start',name:f.dn,size:sz,index:idx}));var o=0;
+    function ck(){if(o>=sz){dc.send(JSON.stringify({type:'file-end',index:idx}));sb+=sz;updSend(Math.round(sb/ts*100));idx++;setTimeout(sn,30);return}dc.send(b.slice(o,Math.min(o+16384,sz)));o+=16384;if(dc.bufferedAmount>131072)setTimeout(ck,80);else ck()}ck()})}sn()}
+function updSend(pct,fn){F('spb').style.width=pct+'%';F('spt').textContent=pct+'%';if(fn)F('sfn').textContent=fn}
+function updRecv(pct,fn){F('rpb').style.width=pct+'%';F('rpt').textContent=pct+'%';if(fn)F('rfn').textContent=fn}
+function showImgs(){var total=0;for(var i=0;i<_recvImages.length;i++)total+=_recvImages[i].size;F('rsu').textContent='收到 '+_recvImages.length+' 张 · '+fmtSize(total);
+  var h='';for(var i=0;i<_recvImages.length;i++){var img=_recvImages[i],u=URL.createObjectURL(img.blob);h+='<div class="ric" data-i="'+i+'"><img src="'+u+'" alt="'+esc(img.name)+'"><div class="cl">'+esc(img.name)+'</div></div>'}
+  F('rig').innerHTML=h;F('rig').querySelectorAll('.ric').forEach(function(c){c.addEventListener('click',function(){lb(_recvImages[parseInt(this.getAttribute('data-i'),10)])})});if(isIOS())F('ih').classList.remove('hn')
+}
+function lb(img){var lbx=document.createElement('div');lbx.className='lb';var el=document.createElement('img');el.src=URL.createObjectURL(img.blob);var btn=document.createElement('button');btn.className='lbx';btn.textContent='✕';btn.onclick=function(){document.body.removeChild(lbx)};lbx.appendChild(el);lbx.appendChild(btn);lbx.onclick=function(e){if(e.target===lbx)document.body.removeChild(lbx)};document.body.appendChild(lbx)}
+
+/* ---- Save All ---- */
+F('bsa').addEventListener('click',function(){if(!_recvImages.length){toast('无图片','wn');return}
+  if(isIOS()){for(var i=0;i<_recvImages.length;i++){dlOne(_recvImages[i])}toast('iOS：请逐张长按保存','wn');return}
+  (function dq(idx){if(idx>=_recvImages.length){toast('✅ 全部保存完成！','ok');return}dlOne(_recvImages[idx]);setTimeout(function(){dq(idx+1)},500)})(0)
+});
+function dlOne(img){var url=URL.createObjectURL(img.blob);var a=document.createElement('a');a.href=url;a.download=img.name;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url)},10000)}
+
+/* ---- Reset ---- */
+F('brt').addEventListener('click',function(){mqttDisconnect();_pc=null;_dc=null;_recvImages=[];_done=false;_code='';hide('rr');hide('rcv');hide('re');show('rp');F('rc').value='';cs('dc','未连接')});
+
+/* Big fix: show sender panel when send clicked */
+F('bsh').addEventListener('click',function(){if(!_files.length){toast('请先选择图片','wn');return}show('sp');hide('bsh')});
+
+console.log('📸 PixShare v4.0 offline ready (single-file, multi-broker, TURN fallback)');
+})();
+</script></body></html>
