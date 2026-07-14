@@ -27,17 +27,6 @@ PIX.Utils = (function () {
     return name.replace(/[\\\/:*?"<>|]/g, '_').trim();
   }
 
-  function generatePeerId() {
-    var chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    var id = 'px-';
-    for (var i = 0; i < 10; i++) { id += chars[Math.floor(Math.random() * chars.length)]; }
-    return id;
-  }
-
-  function generateSessionId() {
-    return generatePeerId();
-  }
-
   function isIOS() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -48,18 +37,11 @@ PIX.Utils = (function () {
       (navigator.maxTouchPoints > 1 && window.innerWidth < 768);
   }
 
-  function getShareUrl(peerId) {
-    return window.location.origin + window.location.pathname + '#' + peerId;
-  }
-
   return {
     formatBytes: formatBytes,
     isImageFile: isImageFile,
     sanitizeFilename: sanitizeFilename,
-    generatePeerId: generatePeerId,
-    generateSessionId: generateSessionId,
     isIOS: isIOS,
-    isMobile: isMobile,
-    getShareUrl: getShareUrl
+    isMobile: isMobile
   };
 })();
