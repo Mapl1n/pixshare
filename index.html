@@ -61,22 +61,18 @@
           <!-- Active share session -->
           <div id="active-share" class="active-share hidden">
             <div class="share-link-box">
-              <p class="share-label">📤 将链接发给好友：</p>
+              <p class="share-label">📤 将链接发给好友</p>
               <div class="share-actions">
-                <button id="btn-share-link" class="btn btn-primary btn-large">
-                  📤 分享链接给好友
+                <button id="btn-share-link" class="btn btn-primary btn-large btn-glow">
+                  📤 一键分享给微信好友
                 </button>
-                <p class="share-or">或</p>
+                <p class="share-or">链接已自动复制，也可手动粘贴：</p>
                 <div class="link-row">
                   <input type="text" id="share-link-input" readonly class="link-input" value="">
                   <button id="btn-copy-link" class="btn btn-outline btn-small">复制</button>
                 </div>
               </div>
-              <p class="share-hint">好友打开链接后自动连接，图片 P2P 直传<br>⚠️ 分享后请勿关闭页面，等待好友连接</p>
-            </div>
-            <div class="manual-signal-box">
-              <p class="share-label">🔧 自动连接失败？试试手动连接：</p>
-              <button id="btn-manual-signal" class="btn btn-outline btn-small">手动信令模式</button>
+              <p class="share-warning">⚠️ 发送方请<b>保持页面打开</b>，切到微信发完链接后请切回本页面</p>
             </div>
           </div>
 

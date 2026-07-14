@@ -159,6 +159,18 @@ body {
 .share-or { text-align: center; font-size: 0.78rem; color: var(--color-text-muted); }
 .share-link-box .btn-large { width: 100%; justify-content: center; }
 .share-link-box .btn-small { flex-shrink: 0; }
+.share-warning {
+  font-size: 0.8rem; color: #92400e; margin-top: 12px; padding: 8px 12px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-xs);
+  text-align: center;
+}
+.btn-glow {
+  animation: btn-glow 2s ease-in-out infinite;
+}
+@keyframes btn-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(124, 58, 237, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(124, 58, 237, 0.6); }
+}
 
 /* Manual signaling */
 .manual-signal-box {
