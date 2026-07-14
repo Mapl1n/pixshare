@@ -131,11 +131,9 @@ PIX.UI = (function () {
     els.qrContainer.innerHTML = '';
     var ok = PIX.QR.generateQRCode(sdp, els.qrContainer);
     if (!ok) {
-      // QR too big — show compressed SDP as fallback
+      // QR too big — text fallback already visible
       els.qrContainer.innerHTML = '<p style="color:#92400e;text-align:center;padding:16px">QR 码生成失败，请用下方文本连接码</p>';
-      // Show text fallback
       document.getElementById('sender-offer-text').value = sdp;
-      document.getElementById('sender-text-fallback').classList.remove('hidden');
     }
   }
 

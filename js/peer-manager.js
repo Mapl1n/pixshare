@@ -1,9 +1,8 @@
 /**
- * peer-manager.js — Pure WebRTC + QR code exchange
- * Offer SDP is encoded as a QR code. Answer SDP is encoded as a QR code.
+ * peer-manager.js — Pure WebRTC + QR or text exchange
  *
- * Flow: Sender shows QR → Receiver scans → processes Offer → shows Answer QR
- *       → Sender scans Answer QR → P2P established → files transfer
+ * Bidirectional: every QR has a prominent "or paste text" fallback.
+ * Works for all scenarios: desktop↔desktop, desktop↔phone, phone↔phone.
  */
 PIX.PeerManager = (function () {
   'use strict';
@@ -14,21 +13,23 @@ PIX.PeerManager = (function () {
   var _pendingFiles = null;
   var _receivedImages = [];
   var _transferComplete = false;
+  var _offerSDP = '';
+  var _answerSDP = '';
 
   var ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   var CHUNK_SIZE = 16 * 1024;
 
   // ---- Init ----
   function init() {
-    // Sender buttons
     document.getElementById('btn-share').addEventListener('click', senderStart);
-    document.getElementById('btn-copy-offer').addEventListener('click', copyOfferFallback);
+    document.getElementById('btn-copy-offer').addEventListener('click', function () {
+      copyTextFallback('sender-offer-text');
+    });
     document.getElementById('btn-paste-answer').addEventListener('click', senderProcessAnswer);
-    document.getElementById('btn-scan-answer').addEventListener('click', senderScanAnswer);
-
-    // Receiver buttons
     document.getElementById('btn-recv-start').addEventListener('click', receiverStart);
-    document.getElementById('btn-copy-answer').addEventListener('click', copyAnswerFallback);
+    document.getElementById('btn-copy-answer').addEventListener('click', function () {
+      copyTextFallback('recv-answer-text');
+    });
     document.getElementById('btn-retry').addEventListener('click', function () { UI.resetAll(); });
   }
 
@@ -39,127 +40,70 @@ PIX.PeerManager = (function () {
     var files = PIX.FileHandler.getFiles();
     if (!files.length) { UI.toast('请先选择图片', 'warning'); return; }
 
-    _isSender = true;
-    _pendingFiles = files;
-    _transferComplete = false;
-
+    _isSender = true; _pendingFiles = files; _transferComplete = false;
     UI.showSenderStep1();
 
     _pc = new RTCPeerConnection(ICE_SERVERS);
     _dc = _pc.createDataChannel('pixshare', { ordered: true });
     _setupDataChannel(_dc, files);
-
     _pc.onicecandidate = function (e) {};
 
-    _pc.createOffer().then(function (offer) {
-      return _pc.setLocalDescription(offer);
-    }).then(function () {
-      return _waitForIce(_pc, 2500);
-    }).then(function () {
-      var fullSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
-      var compressed = PIX.QR.compressSDP(fullSDP);
-      UI.showOfferQR(compressed);
-      // Also store text fallback
-      UI.showOfferText(compressed);
-      UI.toast('📱 请好友用 PixShare 扫码连接', 'success');
-    }).catch(function (err) {
-      console.error('Create offer failed:', err);
-      UI.toast('创建连接失败: ' + err.message, 'error');
-    });
+    _pc.createOffer()
+      .then(function (o) { return _pc.setLocalDescription(o); })
+      .then(function () { return _waitForIce(_pc, 2000); })
+      .then(function () {
+        _offerSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
+        var compressed = PIX.QR.compressSDP(_offerSDP);
+        // Show QR
+        UI.showOfferQR(compressed);
+        // Also fill text area
+        document.getElementById('sender-offer-text').value = compressed;
+        UI.toast('📱 请好友扫码或复制下方文本', 'success');
+        // Auto-copy for easy paste
+        try { navigator.clipboard.writeText(compressed); } catch (e) {}
+      }).catch(function (err) {
+        console.error('Offer failed:', err);
+        UI.toast('创建连接失败: ' + err.message, 'error');
+      });
 
     _pc.oniceconnectionstatechange = function () {
-      if (_pc.iceConnectionState === 'connected' || _pc.iceConnectionState === 'completed') {
-        UI.setConnStatus('connected', '已连接 ✅');
-      }
+      var s = _pc.iceConnectionState;
+      if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', '已连接 ✅');
     };
-  }
-
-  function senderScanAnswer() {
-    // Reuse QR scanner
-    var container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.top = '0'; container.style.left = '0';
-    container.style.width = '100%'; container.style.height = '100%';
-    container.style.background = 'rgba(0,0,0,0.95)';
-    container.style.zIndex = '300';
-    container.style.display = 'flex';
-    container.style.flexDirection = 'column';
-    container.style.alignItems = 'center';
-    container.style.justifyContent = 'center';
-    container.style.padding = '16px';
-    container.style.gap = '12px';
-
-    var cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-outline';
-    cancelBtn.textContent = '✕ 取消';
-    cancelBtn.style.color = '#fff';
-    cancelBtn.style.borderColor = '#fff';
-    container.appendChild(cancelBtn);
-
-    document.body.appendChild(container);
-
-    var scanner = PIX.QR.startScanner(
-      function (result) {
-        PIX.QR.stopScanner(scanner);
-        document.body.removeChild(container);
-        // Process scanned Answer
-        _processAnswerText(result);
-      },
-      function (err) {
-        PIX.QR.stopScanner(scanner);
-        document.body.removeChild(container);
-        UI.toast(err, 'error');
-      }
-    );
-
-    container.insertBefore(scanner.element, cancelBtn);
-
-    cancelBtn.addEventListener('click', function () {
-      PIX.QR.stopScanner(scanner);
-      document.body.removeChild(container);
-    });
-  }
-
-  function _processAnswerText(text) {
-    if (!text) { UI.toast('未识别到有效连接码', 'error'); return; }
-    try {
-      // Try to extract JSON from the text (in case it has extra chars)
-      var m = text.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
-      if (m) text = m[0];
-      var answer = JSON.parse(text);
-      if (answer.type !== 'answer' || !answer.sdp) throw new Error('Not an answer');
-    } catch (e) {
-      UI.toast('二维码内容不是有效的 Answer，请重新扫描', 'error');
-      return;
-    }
-
-    document.getElementById('sender-answer-input').value = text;
-    senderProcessAnswer();
   }
 
   function senderProcessAnswer() {
     var text = document.getElementById('sender-answer-input').value.trim();
-    if (!text) { UI.toast('请先扫描或粘贴 Answer', 'warning'); return; }
-    var answer;
-    try { answer = JSON.parse(text); } catch (e) {
-      UI.toast('Answer 格式不对', 'error');
+    // Auto-detect from clipboard if empty
+    if (!text && navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (t) {
+        if (t) { document.getElementById('sender-answer-input').value = t; senderProcessAnswer(); }
+      });
       return;
     }
-    if (!_pc) { UI.toast('请刷新页面重试', 'warning'); return; }
+    if (!text) { UI.toast('请复制好友的回复，然后点击此按钮', 'warning'); return; }
+
+    // Extract JSON from text
+    var m = text.match(/\{[\s\S]*"type"\s*:\s*"answer"[\s\S]*\}/);
+    if (m) text = m[0];
+
+    var answer;
+    try { answer = JSON.parse(text); } catch (e) { UI.toast('回复格式不对，请确认完整复制', 'error'); return; }
+    if (!_pc) { UI.toast('请重新生成二维码', 'warning'); return; }
 
     _pc.setRemoteDescription(new RTCSessionDescription(answer)).then(function () {
       UI.showSenderConnected();
       UI.setConnStatus('connected', 'P2P 已连接！正在传图...');
     }).catch(function (err) {
-      UI.toast('连接失败: ' + err.message, 'error');
+      UI.toast('连接失败，请确认文本完整。提示：长按消息→全选→复制', 'error');
     });
   }
 
-  function copyOfferFallback() {
-    var ta = document.getElementById('sender-offer-text');
+  function copyTextFallback(targetId) {
+    var ta = document.getElementById(targetId);
     ta.select(); ta.setSelectionRange(0, 99999);
-    try { navigator.clipboard.writeText(ta.value); UI.toast('已复制！', 'success'); }
-    catch (e) { UI.toast('请手动复制', 'warning'); }
+    try { navigator.clipboard.writeText(ta.value); UI.toast('已复制！发给对方即可', 'success'); }
+    catch (e) { UI.toast('请手动全选复制', 'warning'); }
   }
 
   // ================================================================
@@ -167,67 +111,55 @@ PIX.PeerManager = (function () {
   // ================================================================
   function receiverStart() {
     var offerText = document.getElementById('recv-offer-input').value.trim();
-    if (!offerText) { UI.toast('请先扫描发送方的二维码或粘贴连接码', 'warning'); return; }
+    if (!offerText && navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (t) {
+        if (t) { document.getElementById('recv-offer-input').value = t; receiverStart(); }
+      });
+      return;
+    }
+    if (!offerText) { UI.toast('请先让发送方生成二维码，然后复制连接码到此处', 'warning'); return; }
 
-    // Extract JSON if embedded in other text
+    // Extract JSON
     var m = offerText.match(/\{[\s\S]*"type"\s*:\s*"offer"[\s\S]*\}/);
     if (m) offerText = m[0];
 
     var offer;
-    try { offer = JSON.parse(offerText); } catch (e) {
-      UI.toast('连接码格式不对', 'error');
-      return;
-    }
+    try { offer = JSON.parse(offerText); } catch (e) { UI.toast('连接码格式不对，请从 { 到 } 完整复制', 'error'); return; }
 
-    _isSender = false;
-    _receivedImages = [];
-    _transferComplete = false;
-
+    _isSender = false; _receivedImages = []; _transferComplete = false;
     UI.showReceiverStep2();
 
     _pc = new RTCPeerConnection(ICE_SERVERS);
-    _pc.ondatachannel = function (event) {
-      _dc = event.channel;
-      _setupReceiverChannel(_dc);
-    };
+    _pc.ondatachannel = function (event) { _dc = event.channel; _setupReceiverChannel(_dc); };
     _pc.onicecandidate = function (e) {};
 
-    _pc.setRemoteDescription(new RTCSessionDescription(offer)).then(function () {
-      return _pc.createAnswer();
-    }).then(function (answer) {
-      return _pc.setLocalDescription(answer);
-    }).then(function () {
-      return _waitForIce(_pc, 2500);
-    }).then(function () {
-      var fullSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
-      var compressed = PIX.QR.compressSDP(fullSDP);
-      // Show Answer QR
-      UI.showAnswerQR(compressed);
-      UI.showAnswerText(compressed);
-      UI.toast('📱 请发送方扫描此 Answer QR 码', 'success');
-      // Auto-copy as fallback
-      try { navigator.clipboard.writeText(compressed); } catch (e) {}
-    }).catch(function (err) {
-      console.error('Receiver setup failed:', err);
-      UI.toast('连接失败: ' + err.message, 'error');
-    });
+    _pc.setRemoteDescription(new RTCSessionDescription(offer))
+      .then(function () { return _pc.createAnswer(); })
+      .then(function (a) { return _pc.setLocalDescription(a); })
+      .then(function () { return _waitForIce(_pc, 2000); })
+      .then(function () {
+        _answerSDP = JSON.stringify({ sdp: _pc.localDescription.sdp, type: _pc.localDescription.type });
+        var compressed = PIX.QR.compressSDP(_answerSDP);
+        // Show Answer QR
+        UI.showAnswerQR(compressed);
+        // Fill text
+        document.getElementById('recv-answer-text').value = compressed;
+        // Auto-copy
+        try { navigator.clipboard.writeText(compressed); } catch (e) {}
+        UI.toast('✅ 连接码已复制！请发给发送方，或让对方扫码', 'success');
+      }).catch(function (err) {
+        console.error('Receiver error:', err);
+        UI.toast('连接失败: ' + err.message, 'error');
+      });
 
     _pc.oniceconnectionstatechange = function () {
-      if (_pc.iceConnectionState === 'connected' || _pc.iceConnectionState === 'completed') {
-        UI.setConnStatus('connected', 'P2P 已连接！等待接收...');
-      }
+      var s = _pc.iceConnectionState;
+      if (s === 'connected' || s === 'completed') UI.setConnStatus('connected', 'P2P 已连接！等待接收...');
     };
-  }
-
-  function copyAnswerFallback() {
-    var ta = document.getElementById('recv-answer-text');
-    ta.select(); ta.setSelectionRange(0, 99999);
-    try { navigator.clipboard.writeText(ta.value); UI.toast('已复制！', 'success'); }
-    catch (e) { UI.toast('请手动复制', 'warning'); }
   }
 
   // ================================================================
-  //  DATA CHANNEL + FILE TRANSFER
+  //  DATA CHANNEL + FILES
   // ================================================================
   function _setupDataChannel(dc, files) {
     dc.onopen = function () { UI.setConnStatus('connected', '正在发送...'); UI.showSendProgress(); _sendFiles(dc, files); };
@@ -235,83 +167,61 @@ PIX.PeerManager = (function () {
   }
 
   function _setupReceiverChannel(dc) {
-    var cur = null, chunks = [], recvSize = 0;
-    var fc = 0, ec = 0, totalRcvd = 0, totalExp = 0;
+    var cur = null, chunks = [], rs = 0, fc = 0, ec = 0, tr = 0, te = 0;
 
     dc.onopen = function () { UI.setConnStatus('connected', '已连接，等待接收...'); };
 
-    dc.onmessage = function (event) {
-      var data = event.data;
-      if (data instanceof ArrayBuffer) {
-        var arr = new Uint8Array(data);
-        chunks.push(arr); recvSize += arr.byteLength; totalRcvd += arr.byteLength;
-        if (cur && cur.size > 0) UI.updateRecvProgress(Math.round(recvSize / cur.size * 100), cur.name);
-        if (totalExp > 0) UI.setConnStatus('connected', '接收中 ' + Math.round(totalRcvd / totalExp * 100) + '%');
+    dc.onmessage = function (e) {
+      var d = e.data;
+      if (d instanceof ArrayBuffer) {
+        var a = new Uint8Array(d); chunks.push(a); rs += a.byteLength; tr += a.byteLength;
+        if (cur && cur.size > 0) UI.updateRecvProgress(Math.round(rs / cur.size * 100), cur.name);
+        if (te > 0) UI.setConnStatus('connected', '接收中 ' + Math.round(tr / te * 100) + '%');
         return;
       }
-      if (typeof data !== 'string') return;
-      var msg;
-      try { msg = JSON.parse(data); } catch (e) { return; }
-      switch (msg.type) {
-        case 'metadata':
-          totalExp = msg.totalSize; ec = msg.count;
-          UI.showReceiverReceiving();
-          UI.updateRecvProgress(0, '准备接收 ' + msg.count + ' 张...');
-          break;
-        case 'file-start':
-          cur = msg; chunks = []; recvSize = 0;
-          UI.updateRecvProgress(0, msg.name);
-          break;
-        case 'file-end':
-          if (cur && chunks.length > 0) {
-            _receivedImages.push({ name: cur.name, blob: new Blob(chunks, { type: cur.mime || 'application/octet-stream' }), size: cur.size });
-            fc++; UI.setConnStatus('connected', '接收 ' + fc + '/' + ec);
-          }
-          cur = null; chunks = []; recvSize = 0;
-          break;
-        case 'complete':
-          _transferComplete = true;
-          UI.setConnStatus('connected', '接收完成 ✅');
-          UI.showReceiverComplete(_receivedImages);
-          break;
+      if (typeof d !== 'string') return;
+      var m;
+      try { m = JSON.parse(d); } catch (_) { return; }
+      switch (m.type) {
+        case 'metadata': te = m.totalSize; ec = m.count; UI.showReceiverReceiving(); UI.updateRecvProgress(0, '准备接收 ' + m.count + ' 张...'); break;
+        case 'file-start': cur = m; chunks = []; rs = 0; UI.updateRecvProgress(0, m.name); break;
+        case 'file-end': if (cur && chunks.length) { _receivedImages.push({ name: cur.name, blob: new Blob(chunks, { type: cur.mime || 'application/octet-stream' }), size: cur.size }); fc++; UI.setConnStatus('connected', '接收 ' + fc + '/' + ec); } cur = null; chunks = []; rs = 0; break;
+        case 'complete': _transferComplete = true; UI.setConnStatus('connected', '接收完成 ✅'); UI.showReceiverComplete(_receivedImages); break;
       }
     };
 
     dc.onclose = function () {
-      if (!_transferComplete && _receivedImages.length > 0) {
-        UI.showReceiverComplete(_receivedImages);
-        UI.toast('连接关闭，已接收 ' + _receivedImages.length + ' 张', 'warning');
-      }
+      if (!_transferComplete && _receivedImages.length > 0) { UI.showReceiverComplete(_receivedImages); UI.toast('连接关闭，已接收 ' + _receivedImages.length + ' 张', 'warning'); }
     };
   }
 
   function _sendFiles(dc, files) {
-    var totalSize = 0, sentBytes = 0;
-    for (var i = 0; i < files.length; i++) totalSize += files[i].size;
-    dc.send(JSON.stringify({ type: 'metadata', files: files.map(function (f) { return { name: f.displayName, size: f.size, mime: f.type }; }), totalSize: totalSize, count: files.length }));
+    var ts = 0, sb = 0;
+    for (var i = 0; i < files.length; i++) ts += files[i].size;
+    dc.send(JSON.stringify({ type: 'metadata', files: files.map(function (f) { return { name: f.displayName, size: f.size, mime: f.type }; }), totalSize: ts, count: files.length }));
     var idx = 0;
-    function sendNext() {
+    function sn() {
       if (idx >= files.length) { dc.send(JSON.stringify({ type: 'complete' })); _transferComplete = true; UI.updateSendProgress(100, '全部发送完成！'); UI.setConnStatus('connected', '发送完成 ✅'); return; }
       var f = files[idx]; UI.updateSendProgress(0, f.displayName);
-      f.file.arrayBuffer().then(function (buf) {
-        var sz = buf.byteLength; dc.send(JSON.stringify({ type: 'file-start', name: f.displayName, size: sz, index: idx }));
-        var off = 0;
-        function chunk() {
-          if (off >= sz) { dc.send(JSON.stringify({ type: 'file-end', index: idx })); sentBytes += sz; UI.updateSendProgress(Math.round(sentBytes / totalSize * 100)); idx++; setTimeout(sendNext, 30); return; }
-          dc.send(buf.slice(off, Math.min(off + CHUNK_SIZE, sz))); off += CHUNK_SIZE;
-          if (dc.bufferedAmount > CHUNK_SIZE * 8) setTimeout(chunk, 80); else chunk();
+      f.file.arrayBuffer().then(function (b) {
+        var sz = b.byteLength; dc.send(JSON.stringify({ type: 'file-start', name: f.displayName, size: sz, index: idx }));
+        var o = 0;
+        function ck() {
+          if (o >= sz) { dc.send(JSON.stringify({ type: 'file-end', index: idx })); sb += sz; UI.updateSendProgress(Math.round(sb / ts * 100)); idx++; setTimeout(sn, 30); return; }
+          dc.send(b.slice(o, Math.min(o + CHUNK_SIZE, sz))); o += CHUNK_SIZE;
+          if (dc.bufferedAmount > CHUNK_SIZE * 8) setTimeout(ck, 80); else ck();
         }
-        chunk();
+        ck();
       });
     }
-    sendNext();
+    sn();
   }
 
-  function _waitForIce(pc, timeout) {
+  function _waitForIce(pc, t) {
     return new Promise(function (resolve) {
       if (pc.iceGatheringState === 'complete') { resolve(); return; }
-      var t = setTimeout(function () { resolve(); }, timeout);
-      pc.onicegatheringstatechange = function () { if (pc.iceGatheringState === 'complete') { clearTimeout(t); resolve(); } };
+      var to = setTimeout(function () { resolve(); }, t);
+      pc.onicegatheringstatechange = function () { if (pc.iceGatheringState === 'complete') { clearTimeout(to); resolve(); } };
     });
   }
 

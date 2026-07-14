@@ -57,31 +57,22 @@
           📱 生成二维码
         </button>
 
-        <!-- Step 1: Show QR -->
+        <!-- Step 1: Show QR + text dual path -->
         <div id="sender-step1" class="signal-panel hidden">
-          <div class="step-num">请好友扫码连接</div>
+          <div class="step-num">请好友连接</div>
+          <p class="step-desc">方法一：<strong>好友扫码</strong>（推荐手机接收）</p>
           <div id="qr-container" class="qr-container"></div>
 
-          <p class="step-hint">好友打开 PixShare，点「扫码接收」拍摄此二维码</p>
+          <p class="step-desc" style="margin-top:12px">方法二：<strong>复制下方文本发给好友</strong>（适合桌面接收）</p>
+          <textarea id="sender-offer-text" readonly class="signal-ta" rows="2"></textarea>
+          <button id="btn-copy-offer" class="btn btn-secondary">📋 复制连接码</button>
 
           <hr class="signal-divider">
 
-          <!-- Text fallback (hidden by default) -->
-          <div id="sender-text-fallback" class="hidden">
-            <p class="step-desc">或复制连接码给好友：</p>
-            <div class="link-row">
-              <textarea id="sender-offer-text" readonly class="signal-ta" rows="3"></textarea>
-              <button id="btn-copy-offer" class="btn btn-outline btn-small">复制</button>
-            </div>
-          </div>
-
-          <div class="step-num">好友回复后：</div>
-          <p class="step-desc">让好友用 PixShare 回复一个 Answer QR</p>
-          <button id="btn-scan-answer" class="btn btn-outline btn-large">📷 扫描好友的 Answer QR 码</button>
-
-          <p class="step-hint">或手动粘贴 Answer：</p>
-          <textarea id="sender-answer-input" class="signal-ta" rows="2" placeholder="粘贴好友回复的 Answer..."></textarea>
-          <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 建立连接</button>
+          <div class="step-num">好友回复后，在此粘贴：</div>
+          <p class="step-hint">好友连接后会生成一段回复码，复制后粘贴到下方</p>
+          <textarea id="sender-answer-input" class="signal-ta" rows="2" placeholder="粘贴好友的回复码..."></textarea>
+          <button id="btn-paste-answer" class="btn btn-primary btn-large">🔗 粘贴回复码，完成连接</button>
         </div>
 
         <!-- Connected, sending -->
@@ -103,31 +94,29 @@
       <section class="role-section">
         <h2 class="role-title">📥 接收方</h2>
 
-        <!-- Step 0: Scan QR -->
+        <!-- Step 0: Scan QR or paste text -->
         <div id="receiver-step1">
-          <button id="btn-start-scan" class="btn btn-primary btn-large">📷 扫码接收</button>
-          <p class="step-hint" style="margin-top:8px">或粘贴连接码：</p>
-          <textarea id="recv-offer-input" class="signal-ta" rows="3" placeholder="粘贴发送方的连接码..."></textarea>
-          <button id="btn-recv-start" class="btn btn-secondary btn-large">解析连接码</button>
+          <button id="btn-start-scan" class="btn btn-primary btn-large">📷 扫码连接（推荐）</button>
+          <p class="step-hint" style="margin:12px 0">— 或 —</p>
+          <textarea id="recv-offer-input" class="signal-ta" rows="2" placeholder="粘贴发送方的连接码..."></textarea>
+          <button id="btn-recv-start" class="btn btn-secondary">📋 解析连接码</button>
         </div>
 
-        <!-- Scan area -->
+        <!-- Scan area (hidden until scan button clicked) -->
         <div id="recv-scan-area" class="hidden">
           <p class="step-desc" style="text-align:center">对准发送方屏幕上的 QR 码</p>
           <div id="scan-container"></div>
         </div>
 
-        <!-- Step 2: Show Answer QR -->
+        <!-- Step 2: Show Answer QR + text -->
         <div id="receiver-step2" class="signal-panel hidden">
-          <div class="step-num">连接码已解析！请回复：</div>
+          <div class="step-num">已连接！请回复给发送方：</div>
+          <p class="step-desc">方法一：让<strong>发送方扫码</strong>此 Answer QR</p>
           <div id="recv-answer-qr" class="qr-container"></div>
-          <p class="step-hint">让发送方扫描此 QR 码，或用下方按钮复制</p>
 
-          <hr class="signal-divider">
-          <div class="link-row">
-            <textarea id="recv-answer-text" readonly class="signal-ta" rows="3"></textarea>
-            <button id="btn-copy-answer" class="btn btn-outline btn-small">复制备用</button>
-          </div>
+          <p class="step-desc" style="margin-top:12px">方法二：<strong>复制下方文本发给发送方</strong></p>
+          <textarea id="recv-answer-text" readonly class="signal-ta" rows="2"></textarea>
+          <button id="btn-copy-answer" class="btn btn-secondary">📋 复制回复码发给对方</button>
         </div>
 
         <!-- Receiving -->
